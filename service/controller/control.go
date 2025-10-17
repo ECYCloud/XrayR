@@ -34,12 +34,10 @@ type statsOutboundWrapper struct {
 func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	sess := session.InboundFromContext(ctx)
 	if sess != nil && sess.User != nil && len(sess.User.Email) > 0 {
-		p := w.pm.ForLevel(sess.User.Level)
-		if p.Stats.UserDownlink {
-			name := "user>>>" + sess.User.Email + ">>>traffic>>>downlink"
-			if c, _ := stats.GetOrRegisterCounter(w.sm, name); c != nil {
-				link.Writer = &mydispatcher.SizeStatWriter{Counter: c, Writer: link.Writer}
-			}
+		// Always wrap downlink to ensure stats even if policy toggles are off
+		name := "user>>>" + sess.User.Email + ">>>traffic>>>downlink"
+		if c, _ := stats.GetOrRegisterCounter(w.sm, name); c != nil {
+			link.Writer = &mydispatcher.SizeStatWriter{Counter: c, Writer: link.Writer}
 		}
 	}
 	w.Handler.Dispatch(ctx, link)
@@ -104,6 +102,15 @@ func (c *Controller) addUsers(users []*protocol.User, tag string) error {
 		err = userManager.AddUser(context.Background(), mUser)
 		if err != nil {
 			return err
+		}
+		// Pre-register per-user traffic counters so core can increment them (downlink/uplink)
+		uName := "user>>>" + mUser.Email + ">>>traffic>>>uplink"
+		dName := "user>>>" + mUser.Email + ">>>traffic>>>downlink"
+		if _, _ = stats.GetOrRegisterCounter(c.stm, uName); true {
+			// no-op
+		}
+		if _, _ = stats.GetOrRegisterCounter(c.stm, dName); true {
+			// no-op
 		}
 	}
 	return nil
