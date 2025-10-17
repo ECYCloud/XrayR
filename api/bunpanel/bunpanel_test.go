@@ -3,8 +3,8 @@ package bunpanel_test
 import (
 	"testing"
 
-	"github.com/XrayR-project/XrayR/api"
-	"github.com/XrayR-project/XrayR/api/bunpanel"
+	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/api/bunpanel"
 )
 
 func CreateClient() api.API {
