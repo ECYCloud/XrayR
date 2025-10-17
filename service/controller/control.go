@@ -15,7 +15,6 @@ import (
 	"github.com/xtls/xray-core/transport"
 
 	"github.com/ECYCloud/XrayR/api"
-	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	"github.com/ECYCloud/XrayR/common/limiter"
 )
 
@@ -32,18 +31,9 @@ type statsOutboundWrapper struct {
 }
 
 func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
-	sess := session.InboundFromContext(ctx)
-	if sess != nil {
-		// Disable kernel splice to avoid Vision/REALITY bypassing userland stats path
-		// 3 = force disable in all directions (per xray-core implementation)
+	// Only disable splice to ensure core's built-in user stats path is taken.
+	if sess := session.InboundFromContext(ctx); sess != nil {
 		sess.CanSpliceCopy = 3
-		if sess.User != nil && len(sess.User.Email) > 0 {
-			// Always wrap downlink to ensure stats even if policy toggles are off
-			name := "user>>>" + sess.User.Email + ">>>traffic>>>downlink"
-			if c, _ := stats.GetOrRegisterCounter(w.sm, name); c != nil {
-				link.Writer = &mydispatcher.SizeStatWriter{Counter: c, Writer: link.Writer}
-			}
-		}
 	}
 	w.Handler.Dispatch(ctx, link)
 }
