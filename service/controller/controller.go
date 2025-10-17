@@ -530,7 +530,11 @@ func (c *Controller) userInfoMonitor() (err error) {
 	UpdatePeriodic := int64(c.config.UpdatePeriodic)
 	limitedUsers := make([]api.UserInfo, 0)
 	for _, user := range *c.userList {
-		up, down, upCounter, downCounter := c.getTraffic(c.buildUserTag(&user))
+		userTag := c.buildUserTag(&user)
+		up, down, upCounter, downCounter := c.getTraffic(userTag)
+		if down > 0 {
+			c.logger.Printf("Traffic counted: tag=%s up=%d down=%d", userTag, up, down)
+		}
 		if up > 0 || down > 0 {
 			// Over speed users
 			if AutoSpeedLimit > 0 {
@@ -572,6 +576,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		}
 	}
 	if len(userTraffic) > 0 {
+		c.logger.Printf("Reporting %d user(s) traffic to panel; example: UID=%d up=%d down=%d", len(userTraffic), userTraffic[0].UID, userTraffic[0].Upload, userTraffic[0].Download)
 		var err error // Define an empty error
 		if !c.config.DisableUploadTraffic {
 			err = c.apiClient.ReportUserTraffic(&userTraffic)
