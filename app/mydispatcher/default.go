@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
@@ -91,8 +92,10 @@ func (r *cachedReader) Interrupt() {
 	r.reader.Interrupt()
 }
 
-// DefaultDispatcher is a default implementation of Dispatcher.
+// DefaultDispatcher is a custom implementation that embeds the official dispatcher
+// and adds XrayR-specific features like rate limiting and rule management.
 type DefaultDispatcher struct {
+	*dispatcher.DefaultDispatcher
 	ohm         outbound.Manager
 	router      routing.Router
 	policy      policy.Manager
@@ -105,11 +108,24 @@ type DefaultDispatcher struct {
 
 func init() {
 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
-		d := new(DefaultDispatcher)
+		// First create the official dispatcher
+		officialDispatcher := new(dispatcher.DefaultDispatcher)
+		d := &DefaultDispatcher{
+			DefaultDispatcher: officialDispatcher,
+		}
+
 		if err := core.RequireFeatures(ctx, func(om outbound.Manager, router routing.Router, pm policy.Manager, sm stats.Manager, dc dns.Client) error {
 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
 				d.fdns = fdns
 			})
+			// Initialize the official dispatcher with an empty config
+			dispatcherConfig := &dispatcher.Config{
+				Settings: &dispatcher.SessionConfig{},
+			}
+			if err := officialDispatcher.Init(dispatcherConfig, om, router, pm, sm); err != nil {
+				return err
+			}
+			// Initialize our custom fields
 			return d.Init(config.(*Config), om, router, pm, sm, dc)
 		}); err != nil {
 			return nil, err
