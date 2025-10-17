@@ -109,12 +109,9 @@ jobs:
           echo "ASSET_NAME=$_NAME" >> $GITHUB_ENV
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.25.3
-
-      - name: Tidy dependencies
-        run: go mod tidy
+          go-version: '1.25.3'
 
       - name: Get project dependencies
         run: go mod download
