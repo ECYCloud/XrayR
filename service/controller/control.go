@@ -5,14 +5,11 @@ import (
 	"fmt"
 
 	"github.com/xtls/xray-core/common/protocol"
-	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
-	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/proxy"
-	"github.com/xtls/xray-core/transport"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/limiter"
@@ -21,21 +18,6 @@ import (
 func (c *Controller) removeInbound(tag string) error {
 	err := c.ibm.RemoveHandler(context.Background(), tag)
 	return err
-}
-
-// statsOutboundWrapper wraps outbound.Handler to ensure user downlink traffic is counted.
-type statsOutboundWrapper struct {
-	outbound.Handler
-	pm policy.Manager
-	sm stats.Manager
-}
-
-func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
-	// Only disable splice to ensure core's built-in user stats path is taken.
-	if sess := session.InboundFromContext(ctx); sess != nil {
-		sess.CanSpliceCopy = 3
-	}
-	w.Handler.Dispatch(ctx, link)
 }
 
 func (c *Controller) removeOutbound(tag string) error {
@@ -67,8 +49,6 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 	if !ok {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
-	// Wrap outbound handler to ensure downlink stats are always counted (e.g., REALITY/VLESS cases)
-	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}
@@ -97,15 +77,6 @@ func (c *Controller) addUsers(users []*protocol.User, tag string) error {
 		err = userManager.AddUser(context.Background(), mUser)
 		if err != nil {
 			return err
-		}
-		// Pre-register per-user traffic counters so core can increment them (downlink/uplink)
-		uName := "user>>>" + mUser.Email + ">>>traffic>>>uplink"
-		dName := "user>>>" + mUser.Email + ">>>traffic>>>downlink"
-		if _, _ = stats.GetOrRegisterCounter(c.stm, uName); true {
-			// no-op
-		}
-		if _, _ = stats.GetOrRegisterCounter(c.stm, dName); true {
-			// no-op
 		}
 	}
 	return nil
