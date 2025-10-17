@@ -12,6 +12,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
 
 	"github.com/ECYCloud/XrayR/api"
@@ -41,6 +42,7 @@ type Controller struct {
 	ibm          inbound.Manager
 	obm          outbound.Manager
 	stm          stats.Manager
+	pm           policy.Manager
 	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
@@ -66,6 +68,7 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		ibm:        server.GetFeature(inbound.ManagerType()).(inbound.Manager),
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
+		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
 		dispatcher: server.GetFeature(mydispatcher.Type()).(*mydispatcher.DefaultDispatcher),
 		startAt:    time.Now(),
 		logger:     logger,

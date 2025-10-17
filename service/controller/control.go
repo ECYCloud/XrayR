@@ -5,19 +5,44 @@ import (
 	"fmt"
 
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
+	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/proxy"
+	"github.com/xtls/xray-core/transport"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	"github.com/ECYCloud/XrayR/common/limiter"
 )
 
 func (c *Controller) removeInbound(tag string) error {
 	err := c.ibm.RemoveHandler(context.Background(), tag)
 	return err
+}
+
+// statsOutboundWrapper wraps outbound.Handler to ensure user downlink traffic is counted.
+type statsOutboundWrapper struct {
+	outbound.Handler
+	pm policy.Manager
+	sm stats.Manager
+}
+
+func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
+	sess := session.InboundFromContext(ctx)
+	if sess != nil && sess.User != nil && len(sess.User.Email) > 0 {
+		p := w.pm.ForLevel(sess.User.Level)
+		if p.Stats.UserDownlink {
+			name := "user>>>" + sess.User.Email + ">>>traffic>>>downlink"
+			if c, _ := stats.GetOrRegisterCounter(w.sm, name); c != nil {
+				link.Writer = &mydispatcher.SizeStatWriter{Counter: c, Writer: link.Writer}
+			}
+		}
+	}
+	w.Handler.Dispatch(ctx, link)
 }
 
 func (c *Controller) removeOutbound(tag string) error {
@@ -49,6 +74,8 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 	if !ok {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
+	// Wrap outbound handler to ensure downlink stats are always counted (e.g., REALITY/VLESS cases)
+	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}
