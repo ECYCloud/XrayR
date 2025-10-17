@@ -2,11 +2,11 @@
 
 [![](https://img.shields.io/badge/TgChat-@XrayR讨论-blue.svg)](https://t.me/XrayR_project)
 [![](https://img.shields.io/badge/Channel-@XrayR通知-blue.svg)](https://t.me/XrayR_channel)
-![](https://img.shields.io/github/stars/ECYCloud/XrayR)
-![](https://img.shields.io/github/forks/ECYCloud/XrayR)
+![](https://img.shields.io/github/stars/XrayR-project/XrayR)
+![](https://img.shields.io/github/forks/XrayR-project/XrayR)
 ![](https://github.com/ECYCloud/XrayR/actions/workflows/release.yml/badge.svg)
 ![](https://github.com/ECYCloud/XrayR/actions/workflows/docker.yml/badge.svg)
-[![Github All Releases](https://img.shields.io/github/downloads/ECYCloud/XrayR/total.svg)]()
+[![Github All Releases](https://img.shields.io/github/downloads/XrayR-project/XrayR/total.svg)]()
 
 [Iranian(farsi) README](https://github.com/ECYCloud/XrayR/blob/master/README_Fa.md), [Vietnamese(vi) README](https://github.com/ECYCloud/XrayR/blob/master/README-vi.md), [English(en) README](https://github.com/ECYCloud/XrayR/blob/master/README-en.md)
 
@@ -66,7 +66,7 @@
 ### نصب بصورت یکپارچه
 
 ```
-wget -N https://raw.githubusercontent.com/ECYCloud/XrayR-release/master/install.sh && bash install.sh
+wget -N https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/install.sh && bash install.sh
 ```
 
 ### استقرار نرم افزار با استفاده از Docker
@@ -100,6 +100,6 @@ wget -N https://raw.githubusercontent.com/ECYCloud/XrayR-release/master/install.
 
 ## Stargazers over time
 
-[![Stargazers over time](https://starchart.cc/ECYCloud/XrayR.svg)](https://starchart.cc/ECYCloud/XrayR)
+[![Stargazers over time](https://starchart.cc/XrayR-project/XrayR.svg)](https://starchart.cc/XrayR-project/XrayR)
 
 

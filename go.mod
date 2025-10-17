@@ -306,6 +306,3 @@ require (
 )
 
 replace github.com/exoscale/egoscale => github.com/exoscale/egoscale v0.102.3
-
-// 使用本地修改版 Xray-core v1.8.24 (兼容 XrayR 的自定义 dispatcher)
-replace github.com/xtls/xray-core => ./xray-core-patched
