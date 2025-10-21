@@ -143,6 +143,7 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 			return true
 		})
 		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
+			email := key.(string)
 			ipMap := value.(*sync.Map)
 			ipMap.Range(func(key, value interface{}) bool {
 				uid := value.(int)
@@ -150,7 +151,7 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
 				return true
 			})
-			// keep entries to allow periodic re-reporting; entries will be updated on new connections
+			inboundInfo.UserOnlineIP.Delete(email) // Reset online device
 			return true
 		})
 	} else {
