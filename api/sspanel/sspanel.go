@@ -302,12 +302,26 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 
 	postData := &PostData{Data: data}
 	path := "/mod_mu/users/aliveip"
+
+	// Debug log: print the data being sent
+	log.Printf("[XrayR] Reporting %d online users to %s, NodeID: %d", len(data), path, c.NodeID)
+	if len(data) > 0 {
+		log.Printf("[XrayR] Sample data: UID=%d, IP=%s", data[0].UID, data[0].IP)
+	}
+
 	res, err := c.client.R().
 		SetQueryParam("node_id", strconv.Itoa(c.NodeID)).
 		SetBody(postData).
 		SetResult(&Response{}).
 		ForceContentType("application/json").
 		Post(path)
+
+	// Debug log: print response
+	if err == nil {
+		log.Printf("[XrayR] AliveIP report response: StatusCode=%d, Body=%s", res.StatusCode(), string(res.Body()))
+	} else {
+		log.Printf("[XrayR] AliveIP report error: %v", err)
+	}
 
 	_, err = c.parseResponse(res, path, err)
 	if err != nil {
