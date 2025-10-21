@@ -29,12 +29,13 @@ type UserInfo struct {
 }
 
 type InboundInfo struct {
-	Tag            string
-	NodeSpeedLimit uint64
-	UserInfo       *sync.Map // Key: Email value: UserInfo
-	BucketHub      *sync.Map // key: Email, value: *rate.Limiter
-	UserOnlineIP   *sync.Map // Key: Email, value: {Key: IP, value: UID}
-	GlobalLimit    struct {
+	Tag                  string
+	NodeSpeedLimit       uint64
+	UserInfo             *sync.Map // Key: Email value: UserInfo
+	BucketHub            *sync.Map // key: Email, value: *rate.Limiter
+	UserOnlineIP         *sync.Map // Key: Email, value: {Key: IP, value: UID}
+	UserOnlineIPLastSeen *sync.Map // Key: Email, value: {Key: IP, value: lastSeen Unix timestamp}
+	GlobalLimit          struct {
 		config         *GlobalDeviceLimitConfig
 		globalOnlineIP *marshaler.Marshaler
 	}
@@ -52,10 +53,11 @@ func New() *Limiter {
 
 func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList *[]api.UserInfo, globalLimit *GlobalDeviceLimitConfig) error {
 	inboundInfo := &InboundInfo{
-		Tag:            tag,
-		NodeSpeedLimit: nodeSpeedLimit,
-		BucketHub:      new(sync.Map),
-		UserOnlineIP:   new(sync.Map),
+		Tag:                  tag,
+		NodeSpeedLimit:       nodeSpeedLimit,
+		BucketHub:            new(sync.Map),
+		UserOnlineIP:         new(sync.Map),
+		UserOnlineIPLastSeen: new(sync.Map),
 	}
 
 	if globalLimit != nil && globalLimit.Enable {
@@ -145,13 +147,37 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
 			email := key.(string)
 			ipMap := value.(*sync.Map)
+			var lastSeenMap *sync.Map
+			if v, ok := inboundInfo.UserOnlineIPLastSeen.Load(email); ok {
+				lastSeenMap = v.(*sync.Map)
+			} else {
+				lastSeenMap = new(sync.Map)
+			}
+			now := time.Now().Unix()
+			presentCount := 0
 			ipMap.Range(func(key, value interface{}) bool {
 				uid := value.(int)
 				ip := key.(string)
-				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
+				var last int64 = 0
+				if lv, ok := lastSeenMap.Load(ip); ok {
+					last = lv.(int64)
+				}
+				// Keep if seen within last 60 seconds; otherwise prune
+				if now-last <= 60 {
+					onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
+					presentCount++
+				} else {
+					ipMap.Delete(ip)
+					lastSeenMap.Delete(ip)
+				}
 				return true
 			})
-			inboundInfo.UserOnlineIP.Delete(email) // Reset online device
+			if presentCount == 0 {
+				inboundInfo.UserOnlineIP.Delete(email)
+				inboundInfo.UserOnlineIPLastSeen.Delete(email)
+			} else {
+				inboundInfo.UserOnlineIPLastSeen.Store(email, lastSeenMap)
+			}
 			return true
 		})
 	} else {
@@ -196,6 +222,15 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 					return nil, false, true
 				}
 			}
+		}
+		// Update last seen for this user's IP
+		if lsv, ok := inboundInfo.UserOnlineIPLastSeen.LoadOrStore(email, new(sync.Map)); ok {
+			lsm := lsv.(*sync.Map)
+			lsm.Store(ip, time.Now().Unix())
+		} else {
+			lsm := new(sync.Map)
+			lsm.Store(ip, time.Now().Unix())
+			inboundInfo.UserOnlineIPLastSeen.Store(email, lsm)
 		}
 
 		// GlobalLimit
