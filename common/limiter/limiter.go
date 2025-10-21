@@ -145,39 +145,13 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 			return true
 		})
 		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
-			email := key.(string)
 			ipMap := value.(*sync.Map)
-			var lastSeenMap *sync.Map
-			if v, ok := inboundInfo.UserOnlineIPLastSeen.Load(email); ok {
-				lastSeenMap = v.(*sync.Map)
-			} else {
-				lastSeenMap = new(sync.Map)
-			}
-			now := time.Now().Unix()
-			presentCount := 0
 			ipMap.Range(func(key, value interface{}) bool {
 				uid := value.(int)
 				ip := key.(string)
-				var last int64 = 0
-				if lv, ok := lastSeenMap.Load(ip); ok {
-					last = lv.(int64)
-				}
-				// Keep if seen within last 60 seconds; otherwise prune
-				if now-last <= 60 {
-					onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
-					presentCount++
-				} else {
-					ipMap.Delete(ip)
-					lastSeenMap.Delete(ip)
-				}
+				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
 				return true
 			})
-			if presentCount == 0 {
-				inboundInfo.UserOnlineIP.Delete(email)
-				inboundInfo.UserOnlineIPLastSeen.Delete(email)
-			} else {
-				inboundInfo.UserOnlineIPLastSeen.Store(email, lastSeenMap)
-			}
 			return true
 		})
 	} else {

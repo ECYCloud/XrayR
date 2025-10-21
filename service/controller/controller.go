@@ -589,10 +589,10 @@ func (c *Controller) userInfoMonitor() (err error) {
 		}
 	}
 
-	// Report Online info
+	// Report Online info (always attempt reporting, even if list is empty)
 	if onlineDevice, err := c.GetOnlineDevice(c.Tag); err != nil {
 		c.logger.Print(err)
-	} else if len(*onlineDevice) > 0 {
+	} else {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			c.logger.Print(err)
 		} else {
