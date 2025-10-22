@@ -59,6 +59,13 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"Type": api.Describe().NodeType,
 		"ID":   api.Describe().NodeID,
 	})
+	// Get the custom dispatcher
+	dispatcherFeature := server.GetFeature(routing.DispatcherType())
+	customDispatcher, ok := dispatcherFeature.(*mydispatcher.DefaultDispatcher)
+	if !ok {
+		logger.Panicf("Failed to get custom dispatcher: got type %T, expected *mydispatcher.DefaultDispatcher. Please check if mydispatcher is properly registered.", dispatcherFeature)
+	}
+
 	controller := &Controller{
 		server:     server,
 		config:     config,
@@ -67,7 +74,7 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		ibm:        server.GetFeature(inbound.ManagerType()).(inbound.Manager),
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
-		dispatcher: server.GetFeature(routing.DispatcherType()).(*mydispatcher.DefaultDispatcher),
+		dispatcher: customDispatcher,
 		startAt:    time.Now(),
 		logger:     logger,
 	}
