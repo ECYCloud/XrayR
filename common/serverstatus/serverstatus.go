@@ -2,7 +2,6 @@
 package serverstatus
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -47,7 +46,7 @@ func GetSystemInfo() (Cpu float64, Mem float64, Disk float64, Uptime uint64, err
 	}
 
 	if errorString != "" {
-		err = errors.New(errorString)
+		err = fmt.Errorf(errorString)
 	}
 
 	return Cpu, Mem, Disk, Uptime, err
