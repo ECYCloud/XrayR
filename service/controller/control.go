@@ -23,17 +23,23 @@ func (c *Controller) removeInbound(tag string) error {
 	return err
 }
 
-// statsOutboundWrapper wraps outbound.Handler to ensure user downlink traffic is counted.
+// statsOutboundWrapper wraps outbound.Handler to ensure user downlink traffic is counted,
+// and also records online IPs for alive_ip reporting via limiter.
 type statsOutboundWrapper struct {
 	outbound.Handler
-	pm policy.Manager
-	sm stats.Manager
+	pm      policy.Manager
+	sm      stats.Manager
+	limiter *limiter.Limiter
 }
 
 func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	// Disable kernel splice to avoid Vision/REALITY bypassing userland stats path
 	if sess := session.InboundFromContext(ctx); sess != nil {
 		sess.CanSpliceCopy = 3
+		// Record online IP without enforcing device limit here, to avoid behavior changes.
+		if w.limiter != nil && sess.User != nil && len(sess.User.Email) > 0 {
+			_, _, _ = w.limiter.GetUserBucket(sess.Tag, sess.User.Email, sess.Source.Address.IP().String())
+		}
 	}
 	w.Handler.Dispatch(ctx, link)
 }
@@ -68,7 +74,7 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
 	// Wrap outbound handler to ensure downlink stats are always counted (e.g., REALITY/VLESS cases)
-	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm}
+	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}
