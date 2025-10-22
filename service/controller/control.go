@@ -60,7 +60,9 @@ func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Lin
 				common.Interrupt(link.Reader)
 				return
 			} else if ok {
+				// Apply rate limit on both directions to cover all protocols
 				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
+				link.Reader = w.limiter.RateReader(link.Reader, bucket)
 			}
 		}
 	}
