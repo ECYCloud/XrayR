@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
+	"github.com/xtls/xray-core/infra/conf"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/limiter"
@@ -80,9 +82,49 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 	return controller
 }
 
+// wrapBuiltinOutbounds ensures core built-in/custom outbounds are re-added through controller wrapper
+// so that audit, device limit, and speed limit enforcement run for ALL protocols/routes.
+func (c *Controller) wrapBuiltinOutbounds() {
+	// Known default tags from release/config/custom_outbound.json
+	tags := []string{"IPv4_out", "IPv6_out", "socks5-warp", "block"}
+	for _, tag := range tags {
+		// Best-effort remove if exists; ignore error
+		_ = c.removeOutbound(tag)
+		// Recreate outbound config matching defaults
+		ob := &conf.OutboundDetourConfig{Tag: tag}
+		switch tag {
+		case "IPv4_out":
+			ob.Protocol = "freedom"
+			// empty settings
+			b, _ := json.Marshal(map[string]any{})
+			m := json.RawMessage(b)
+			ob.Settings = &m
+		case "IPv6_out":
+			ob.Protocol = "freedom"
+			b, _ := json.Marshal(map[string]any{"domainStrategy": "UseIPv6"})
+			m := json.RawMessage(b)
+			ob.Settings = &m
+		case "socks5-warp":
+			ob.Protocol = "socks"
+			b, _ := json.Marshal(map[string]any{
+				"servers": []map[string]any{{"address": "127.0.0.1", "port": 1080}},
+			})
+			m := json.RawMessage(b)
+			ob.Settings = &m
+		case "block":
+			ob.Protocol = "blackhole"
+		}
+		if built, err := ob.Build(); err == nil {
+			_ = c.addOutbound(built) // add with wrapper
+		}
+	}
+}
+
 // Start implement the Start() function of the service interface
 func (c *Controller) Start() error {
 	c.clientInfo = c.apiClient.Describe()
+	// Re-wrap built-in/custom outbounds so enforcement applies to routes that target them (e.g., VMess/SS/Trojan)
+	c.wrapBuiltinOutbounds()
 	// First fetch Node Info
 	newNodeInfo, err := c.apiClient.GetNodeInfo()
 	if err != nil {
@@ -154,10 +196,6 @@ func (c *Controller) Start() error {
 				Execute:  c.userInfoMonitor,
 			}},
 	)
-	// Ensure default outbound is wrapped so all protocols (VMess/SS/Trojan) are enforced
-	if err := c.wrapDefaultOutbound(); err != nil {
-		c.logger.Printf("wrap default outbound failed: %v", err)
-	}
 
 	// Check cert service in need
 	if c.nodeInfo.EnableTLS && c.config.EnableREALITY == false {
