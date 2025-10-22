@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
@@ -92,6 +93,7 @@ func (r *cachedReader) Interrupt() {
 }
 
 type DefaultDispatcher struct {
+	*dispatcher.DefaultDispatcher
 	ohm         outbound.Manager
 	router      routing.Router
 	policy      policy.Manager
@@ -104,11 +106,19 @@ type DefaultDispatcher struct {
 
 func init() {
 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
-		d := new(DefaultDispatcher)
+		d := &DefaultDispatcher{
+			DefaultDispatcher: new(dispatcher.DefaultDispatcher),
+		}
 		if err := core.RequireFeatures(ctx, func(om outbound.Manager, router routing.Router, pm policy.Manager, sm stats.Manager, dc dns.Client) error {
 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
 				d.fdns = fdns
 			})
+			// Initialize the embedded official dispatcher
+			dispatcherConfig := &dispatcher.Config{}
+			if err := d.DefaultDispatcher.Init(dispatcherConfig, om, router, pm, sm); err != nil {
+				return err
+			}
+			// Initialize our custom fields
 			return d.Init(config.(*Config), om, router, pm, sm, dc)
 		}); err != nil {
 			return nil, err
