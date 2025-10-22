@@ -74,7 +74,7 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
 	// Wrap outbound handler to ensure downlink stats are always counted (e.g., REALITY/VLESS cases)
-	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter}
+	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.limiter}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}
@@ -168,29 +168,29 @@ func (c *Controller) resetTraffic(upCounterList *[]stats.Counter, downCounterLis
 }
 
 func (c *Controller) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList *[]api.UserInfo, globalDeviceLimitConfig *limiter.GlobalDeviceLimitConfig) error {
-	err := c.dispatcher.Limiter.AddInboundLimiter(tag, nodeSpeedLimit, userList, globalDeviceLimitConfig)
+	err := c.limiter.AddInboundLimiter(tag, nodeSpeedLimit, userList, globalDeviceLimitConfig)
 	return err
 }
 
 func (c *Controller) UpdateInboundLimiter(tag string, updatedUserList *[]api.UserInfo) error {
-	err := c.dispatcher.Limiter.UpdateInboundLimiter(tag, updatedUserList)
+	err := c.limiter.UpdateInboundLimiter(tag, updatedUserList)
 	return err
 }
 
 func (c *Controller) DeleteInboundLimiter(tag string) error {
-	err := c.dispatcher.Limiter.DeleteInboundLimiter(tag)
+	err := c.limiter.DeleteInboundLimiter(tag)
 	return err
 }
 
 func (c *Controller) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
-	return c.dispatcher.Limiter.GetOnlineDevice(tag)
+	return c.limiter.GetOnlineDevice(tag)
 }
 
 func (c *Controller) UpdateRule(tag string, newRuleList []api.DetectRule) error {
-	err := c.dispatcher.RuleManager.UpdateRule(tag, newRuleList)
+	err := c.ruleManager.UpdateRule(tag, newRuleList)
 	return err
 }
 
 func (c *Controller) GetDetectResult(tag string) (*[]api.DetectResult, error) {
-	return c.dispatcher.RuleManager.GetDetectResult(tag)
+	return c.ruleManager.GetDetectResult(tag)
 }

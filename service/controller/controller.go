@@ -16,8 +16,9 @@ import (
 	"github.com/xtls/xray-core/features/stats"
 
 	"github.com/ECYCloud/XrayR/api"
-	"github.com/ECYCloud/XrayR/app/mydispatcher"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/mylego"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -43,7 +44,8 @@ type Controller struct {
 	obm          outbound.Manager
 	stm          stats.Manager
 	pm           policy.Manager
-	dispatcher   *mydispatcher.DefaultDispatcher
+	limiter      *limiter.Limiter
+	ruleManager  *rule.Manager
 	startAt      time.Time
 	logger       *log.Entry
 }
@@ -61,17 +63,18 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"ID":   api.Describe().NodeID,
 	})
 	controller := &Controller{
-		server:     server,
-		config:     config,
-		apiClient:  api,
-		panelType:  panelType,
-		ibm:        server.GetFeature(inbound.ManagerType()).(inbound.Manager),
-		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
-		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
-		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
-		dispatcher: server.GetFeature(mydispatcher.Type()).(*mydispatcher.DefaultDispatcher),
-		startAt:    time.Now(),
-		logger:     logger,
+		server:      server,
+		config:      config,
+		apiClient:   api,
+		panelType:   panelType,
+		ibm:         server.GetFeature(inbound.ManagerType()).(inbound.Manager),
+		obm:         server.GetFeature(outbound.ManagerType()).(outbound.Manager),
+		stm:         server.GetFeature(stats.ManagerType()).(stats.Manager),
+		pm:          server.GetFeature(policy.ManagerType()).(policy.Manager),
+		limiter:     limiter.New(),
+		ruleManager: rule.New(),
+		startAt:     time.Now(),
+		logger:      logger,
 	}
 
 	return controller

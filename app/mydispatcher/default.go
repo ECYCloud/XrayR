@@ -146,10 +146,9 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType and overrides the core dispatcher type token
-// so that this dispatcher is used by xray-core.
+// Type implements common.HasType for registering as a separate feature, not overriding core dispatcher.
 func (*DefaultDispatcher) Type() interface{} {
-	return routing.DispatcherType()
+	return Type()
 }
 
 // Start implements common.Runnable.

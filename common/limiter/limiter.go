@@ -135,16 +135,10 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 	if value, ok := l.InboundInfo.Load(tag); ok {
 		inboundInfo := value.(*InboundInfo)
 		// Clear Speed Limiter bucket for users who are not online
-		// BucketHub key format is "tag|email|uid", need to extract email to check UserOnlineIP
 		inboundInfo.BucketHub.Range(func(key, value interface{}) bool {
-			keyStr := key.(string)
-			// Extract email from "tag|email|uid" format
-			parts := strings.Split(keyStr, "|")
-			if len(parts) >= 2 {
-				email := parts[1]
-				if _, exists := inboundInfo.UserOnlineIP.Load(email); !exists {
-					inboundInfo.BucketHub.Delete(keyStr)
-				}
+			email := key.(string)
+			if _, exists := inboundInfo.UserOnlineIP.Load(email); !exists {
+				inboundInfo.BucketHub.Delete(email)
 			}
 			return true
 		})
@@ -177,21 +171,12 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 		inboundInfo := value.(*InboundInfo)
 		nodeLimit := inboundInfo.NodeSpeedLimit
 
-		// Find user info by iterating through the map since we don't have UID yet
-		// The key format is "tag|email|uid" but we only have tag and email
-		inboundInfo.UserInfo.Range(func(key, value interface{}) bool {
-			keyStr := key.(string)
-			// Check if the key starts with "tag|email|"
-			expectedPrefix := fmt.Sprintf("%s|%s|", tag, email)
-			if len(keyStr) >= len(expectedPrefix) && keyStr[:len(expectedPrefix)] == expectedPrefix {
-				u := value.(UserInfo)
-				uid = u.UID
-				userLimit = u.SpeedLimit
-				deviceLimit = u.DeviceLimit
-				return false // Stop iteration
-			}
-			return true // Continue iteration
-		})
+		if v, ok := inboundInfo.UserInfo.Load(email); ok {
+			u := v.(UserInfo)
+			uid = u.UID
+			userLimit = u.SpeedLimit
+			deviceLimit = u.DeviceLimit
+		}
 
 		// Local device limit
 		ipMap := new(sync.Map)
@@ -224,9 +209,7 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 		limit := determineRate(nodeLimit, userLimit) // Determine the speed limit rate
 		if limit > 0 {
 			limiter := rate.NewLimiter(rate.Limit(limit), int(limit)) // Byte/s
-			// Use the same key format for BucketHub: "tag|email|uid"
-			bucketKey := fmt.Sprintf("%s|%s|%d", tag, email, uid)
-			if v, ok := inboundInfo.BucketHub.LoadOrStore(bucketKey, limiter); ok {
+			if v, ok := inboundInfo.BucketHub.LoadOrStore(email, limiter); ok {
 				bucket := v.(*rate.Limiter)
 				return bucket, true, false
 			} else {

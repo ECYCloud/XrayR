@@ -3,11 +3,10 @@ package mydispatcher
 
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
-import "github.com/xtls/xray-core/features/routing"
-
-// Type returns the feature type token and intentionally overrides the core
-// dispatcher so that XrayR's custom dispatcher participates in the data path.
-// This is required for device counting and speed limiting to work.
+// Type returns the feature type token for the custom dispatcher feature.
+// It intentionally differs from routing.DispatcherType() to avoid replacing
+// the core dispatcher and causing type assertion panics in xray-core.
 func Type() interface{} {
-	return routing.DispatcherType()
+	// Consumers should use server.GetFeature(mydispatcher.Type()) to access it.
+	return (*DefaultDispatcher)(nil)
 }
