@@ -36,25 +36,31 @@ type statsOutboundWrapper struct {
 }
 
 func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
-	// Disable kernel splice to avoid Vision/REALITY bypassing userland stats path
+	// Disable kernel splice early to avoid Vision/REALITY bypassing userland stats path
 	if sess := session.InboundFromContext(ctx); sess != nil {
 		sess.CanSpliceCopy = 3
-		if w.limiter != nil && sess.User != nil && len(sess.User.Email) > 0 {
-			// Audit rule detection (block before dispatch if matched)
-			if w.ruleManager != nil {
-				outbounds := session.OutboundsFromContext(ctx)
-				if len(outbounds) > 0 {
-					ob := outbounds[len(outbounds)-1]
-					dest := ob.Target.String()
-					if w.ruleManager.Detect(sess.Tag, dest, sess.User.Email) {
-						// Block connection
-						common.Close(link.Writer)
-						common.Interrupt(link.Reader)
-						return
-					}
+		// Audit rule detection (prefer OriginalTarget, then Target) — run regardless of limiter
+		if w.ruleManager != nil {
+			if obs := session.OutboundsFromContext(ctx); len(obs) > 0 {
+				ob := obs[len(obs)-1]
+				dest := ob.Target.String()
+				if ot := ob.OriginalTarget.String(); ot != "" {
+					dest = ot
+				}
+				var email string
+				if sess.User != nil {
+					email = sess.User.Email
+				}
+				if dest != "" && w.ruleManager.Detect(sess.Tag, dest, email) {
+					// Block connection
+					common.Close(link.Writer)
+					common.Interrupt(link.Reader)
+					return
 				}
 			}
-			// Device limit and per-user/node speed limit
+		}
+		// Device limit and per-user/node speed limit & alive_ip reporting
+		if w.limiter != nil && sess.User != nil && len(sess.User.Email) > 0 {
 			if bucket, ok, reject := w.limiter.GetUserBucket(sess.Tag, sess.User.Email, sess.Source.Address.IP().String()); reject {
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
