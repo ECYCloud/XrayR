@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,14 +12,12 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
-	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
-	"github.com/xtls/xray-core/infra/conf"
 
 	"github.com/ECYCloud/XrayR/api"
-	"github.com/ECYCloud/XrayR/common/limiter"
+	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	"github.com/ECYCloud/XrayR/common/mylego"
-	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -45,9 +42,7 @@ type Controller struct {
 	ibm          inbound.Manager
 	obm          outbound.Manager
 	stm          stats.Manager
-	pm           policy.Manager
-	limiter      *limiter.Limiter
-	ruleManager  *rule.Manager
+	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
 }
@@ -65,66 +60,24 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"ID":   api.Describe().NodeID,
 	})
 	controller := &Controller{
-		server:      server,
-		config:      config,
-		apiClient:   api,
-		panelType:   panelType,
-		ibm:         server.GetFeature(inbound.ManagerType()).(inbound.Manager),
-		obm:         server.GetFeature(outbound.ManagerType()).(outbound.Manager),
-		stm:         server.GetFeature(stats.ManagerType()).(stats.Manager),
-		pm:          server.GetFeature(policy.ManagerType()).(policy.Manager),
-		limiter:     limiter.New(),
-		ruleManager: rule.New(),
-		startAt:     time.Now(),
-		logger:      logger,
+		server:     server,
+		config:     config,
+		apiClient:  api,
+		panelType:  panelType,
+		ibm:        server.GetFeature(inbound.ManagerType()).(inbound.Manager),
+		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
+		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
+		dispatcher: server.GetFeature(routing.DispatcherType()).(*mydispatcher.DefaultDispatcher),
+		startAt:    time.Now(),
+		logger:     logger,
 	}
 
 	return controller
 }
 
-// wrapBuiltinOutbounds ensures core built-in/custom outbounds are re-added through controller wrapper
-// so that audit, device limit, and speed limit enforcement run for ALL protocols/routes.
-func (c *Controller) wrapBuiltinOutbounds() {
-	// Known default tags from release/config/custom_outbound.json
-	tags := []string{"IPv4_out", "IPv6_out", "socks5-warp", "block"}
-	for _, tag := range tags {
-		// Best-effort remove if exists; ignore error
-		_ = c.removeOutbound(tag)
-		// Recreate outbound config matching defaults
-		ob := &conf.OutboundDetourConfig{Tag: tag}
-		switch tag {
-		case "IPv4_out":
-			ob.Protocol = "freedom"
-			// empty settings
-			b, _ := json.Marshal(map[string]any{})
-			m := json.RawMessage(b)
-			ob.Settings = &m
-		case "IPv6_out":
-			ob.Protocol = "freedom"
-			b, _ := json.Marshal(map[string]any{"domainStrategy": "UseIPv6"})
-			m := json.RawMessage(b)
-			ob.Settings = &m
-		case "socks5-warp":
-			ob.Protocol = "socks"
-			b, _ := json.Marshal(map[string]any{
-				"servers": []map[string]any{{"address": "127.0.0.1", "port": 1080}},
-			})
-			m := json.RawMessage(b)
-			ob.Settings = &m
-		case "block":
-			ob.Protocol = "blackhole"
-		}
-		if built, err := ob.Build(); err == nil {
-			_ = c.addOutbound(built) // add with wrapper
-		}
-	}
-}
-
 // Start implement the Start() function of the service interface
 func (c *Controller) Start() error {
 	c.clientInfo = c.apiClient.Describe()
-	// Re-wrap built-in/custom outbounds so enforcement applies to routes that target them (e.g., VMess/SS/Trojan)
-	c.wrapBuiltinOutbounds()
 	// First fetch Node Info
 	newNodeInfo, err := c.apiClient.GetNodeInfo()
 	if err != nil {
@@ -575,11 +528,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 	UpdatePeriodic := int64(c.config.UpdatePeriodic)
 	limitedUsers := make([]api.UserInfo, 0)
 	for _, user := range *c.userList {
-		userTag := c.buildUserTag(&user)
-		up, down, upCounter, downCounter := c.getTraffic(userTag)
-		if down > 0 {
-			c.logger.Printf("Traffic counted: tag=%s up=%d down=%d", userTag, up, down)
-		}
+		up, down, upCounter, downCounter := c.getTraffic(c.buildUserTag(&user))
 		if up > 0 || down > 0 {
 			// Over speed users
 			if AutoSpeedLimit > 0 {
@@ -621,7 +570,6 @@ func (c *Controller) userInfoMonitor() (err error) {
 		}
 	}
 	if len(userTraffic) > 0 {
-		c.logger.Printf("Reporting %d user(s) traffic to panel; example: UID=%d up=%d down=%d", len(userTraffic), userTraffic[0].UID, userTraffic[0].Upload, userTraffic[0].Download)
 		var err error // Define an empty error
 		if !c.config.DisableUploadTraffic {
 			err = c.apiClient.ReportUserTraffic(&userTraffic)

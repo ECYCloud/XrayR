@@ -23,6 +23,7 @@ import (
 	"github.com/ECYCloud/XrayR/api/proxypanel"
 	"github.com/ECYCloud/XrayR/api/sspanel"
 	"github.com/ECYCloud/XrayR/api/v2raysocks"
+	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/controller"
@@ -140,6 +141,7 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(coreLogConfig.Build()),
 			serial.ToTypedMessage(&dispatcher.Config{}),
+			serial.ToTypedMessage(&mydispatcher.Config{}),
 			serial.ToTypedMessage(&stats.Config{}),
 			serial.ToTypedMessage(&proxyman.InboundConfig{}),
 			serial.ToTypedMessage(&proxyman.OutboundConfig{}),
