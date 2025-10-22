@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
@@ -27,63 +26,41 @@ func (c *Controller) removeInbound(tag string) error {
 }
 
 // statsOutboundWrapper wraps outbound.Handler to ensure user downlink traffic is counted,
-// and also records online IPs, enforces device limit, applies per-user/node rate limit,
-// and performs audit rule detection.
+// and also records online IPs for alive_ip reporting via limiter.
 type statsOutboundWrapper struct {
 	outbound.Handler
 	pm          policy.Manager
 	sm          stats.Manager
 	limiter     *limiter.Limiter
 	ruleManager *rule.Manager
-	logger      *logrus.Entry
 }
 
 func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	// Disable kernel splice to avoid Vision/REALITY bypassing userland stats path
 	if sess := session.InboundFromContext(ctx); sess != nil {
 		sess.CanSpliceCopy = 3
-		var email string
-		if sess.User != nil {
-			email = sess.User.Email
-		}
-		// Resolve destination string from outbound session info
-		destStr := ""
-		if obs := session.OutboundsFromContext(ctx); len(obs) > 0 {
-			ob := obs[len(obs)-1]
-			if ob.Target.IsValid() {
-				destStr = ob.Target.String()
-			} else if ob.RouteTarget.IsValid() {
-				destStr = ob.RouteTarget.String()
-			} else if ob.OriginalTarget.IsValid() {
-				destStr = ob.OriginalTarget.String()
-			}
-		}
-		// Audit rule detection
-		if w.ruleManager != nil && sess.User != nil && len(email) > 0 && len(destStr) > 0 {
-			if w.ruleManager.Detect(sess.Tag, destStr, email) {
-				if w.logger != nil {
-					w.logger.Warnf("User %s access %s reject by rule", email, destStr)
+		if w.limiter != nil && sess.User != nil && len(sess.User.Email) > 0 {
+			// Audit rule detection (block before dispatch if matched)
+			if w.ruleManager != nil {
+				outbounds := session.OutboundsFromContext(ctx)
+				if len(outbounds) > 0 {
+					ob := outbounds[len(outbounds)-1]
+					dest := ob.Target.String()
+					if w.ruleManager.Detect(sess.Tag, dest, sess.User.Email) {
+						// Block connection
+						common.Close(link.Writer)
+						common.Interrupt(link.Reader)
+						return
+					}
 				}
+			}
+			// Device limit and per-user/node speed limit
+			if bucket, ok, reject := w.limiter.GetUserBucket(sess.Tag, sess.User.Email, sess.Source.Address.IP().String()); reject {
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
 				return
-			}
-		}
-		// Device limit + speed limit
-		if w.limiter != nil && len(email) > 0 {
-			bucket, ok, reject := w.limiter.GetUserBucket(sess.Tag, email, sess.Source.Address.IP().String())
-			if reject {
-				if w.logger != nil {
-					w.logger.Warnf("Devices reach the limit: %s", email)
-				}
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			}
-			if ok && bucket != nil {
-				// Apply per-user/node rate limit on both directions
+			} else if ok {
 				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
-				link.Reader = w.limiter.RateReader(link.Reader, bucket)
 			}
 		}
 	}
@@ -120,7 +97,7 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
 	// Wrap outbound handler to ensure downlink stats are always counted (e.g., REALITY/VLESS cases)
-	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.limiter}
+	handler = &statsOutboundWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.limiter, ruleManager: c.ruleManager}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}
