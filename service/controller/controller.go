@@ -154,6 +154,10 @@ func (c *Controller) Start() error {
 				Execute:  c.userInfoMonitor,
 			}},
 	)
+	// Ensure default outbound is wrapped so all protocols (VMess/SS/Trojan) are enforced
+	if err := c.wrapDefaultOutbound(); err != nil {
+		c.logger.Printf("wrap default outbound failed: %v", err)
+	}
 
 	// Check cert service in need
 	if c.nodeInfo.EnableTLS && c.config.EnableREALITY == false {

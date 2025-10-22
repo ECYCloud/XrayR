@@ -20,6 +20,29 @@ import (
 	"github.com/ECYCloud/XrayR/common/rule"
 )
 
+// wrapDefaultOutbound replaces core's default outbound handler with a wrapped one
+// so that audit/device-limit/speed-limit work even when router selects default outbound.
+func (c *Controller) wrapDefaultOutbound() error {
+	h := c.obm.GetDefaultHandler()
+	if h == nil {
+		return nil
+	}
+	tag := h.Tag()
+	// If it's already our wrapper, skip
+	if _, ok := h.(*statsOutboundWrapper); ok {
+		return nil
+	}
+	// Remove and re-add with wrapper
+	if err := c.obm.RemoveHandler(context.Background(), tag); err != nil {
+		return err
+	}
+	wrapped := &statsOutboundWrapper{Handler: h, pm: c.pm, sm: c.stm, limiter: c.limiter, ruleManager: c.ruleManager}
+	if err := c.obm.AddHandler(context.Background(), wrapped); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *Controller) removeInbound(tag string) error {
 	err := c.ibm.RemoveHandler(context.Background(), tag)
 	return err
@@ -60,9 +83,7 @@ func (w *statsOutboundWrapper) Dispatch(ctx context.Context, link *transport.Lin
 				common.Interrupt(link.Reader)
 				return
 			} else if ok {
-				// Apply rate limit on both directions to cover all protocols
 				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
-				link.Reader = w.limiter.RateReader(link.Reader, bucket)
 			}
 		}
 	}
