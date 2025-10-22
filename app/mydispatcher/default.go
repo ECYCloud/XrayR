@@ -92,6 +92,8 @@ func (r *cachedReader) Interrupt() {
 	r.reader.Interrupt()
 }
 
+// DefaultDispatcher is a custom implementation that embeds the official dispatcher
+// and adds XrayR-specific features like rate limiting and rule management.
 type DefaultDispatcher struct {
 	*dispatcher.DefaultDispatcher
 	ohm         outbound.Manager
@@ -106,16 +108,21 @@ type DefaultDispatcher struct {
 
 func init() {
 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
+		// First create the official dispatcher
+		officialDispatcher := new(dispatcher.DefaultDispatcher)
 		d := &DefaultDispatcher{
-			DefaultDispatcher: new(dispatcher.DefaultDispatcher),
+			DefaultDispatcher: officialDispatcher,
 		}
+
 		if err := core.RequireFeatures(ctx, func(om outbound.Manager, router routing.Router, pm policy.Manager, sm stats.Manager, dc dns.Client) error {
 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
 				d.fdns = fdns
 			})
-			// Initialize the embedded official dispatcher
-			dispatcherConfig := &dispatcher.Config{}
-			if err := d.DefaultDispatcher.Init(dispatcherConfig, om, router, pm, sm); err != nil {
+			// Initialize the official dispatcher with an empty config
+			dispatcherConfig := &dispatcher.Config{
+				Settings: &dispatcher.SessionConfig{},
+			}
+			if err := officialDispatcher.Init(dispatcherConfig, om, router, pm, sm); err != nil {
 				return err
 			}
 			// Initialize our custom fields
@@ -139,7 +146,7 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType.
+// Type implements common.HasType for registering as a separate feature, not overriding core dispatcher.
 func (*DefaultDispatcher) Type() interface{} {
 	return routing.DispatcherType()
 }

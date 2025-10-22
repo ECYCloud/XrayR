@@ -12,7 +12,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
-	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
 
 	"github.com/ECYCloud/XrayR/api"
@@ -42,6 +42,7 @@ type Controller struct {
 	ibm          inbound.Manager
 	obm          outbound.Manager
 	stm          stats.Manager
+	pm           policy.Manager
 	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
@@ -59,13 +60,6 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"Type": api.Describe().NodeType,
 		"ID":   api.Describe().NodeID,
 	})
-	// Get the custom dispatcher
-	dispatcherFeature := server.GetFeature(routing.DispatcherType())
-	customDispatcher, ok := dispatcherFeature.(*mydispatcher.DefaultDispatcher)
-	if !ok {
-		logger.Panicf("Failed to get custom dispatcher: got type %T, expected *mydispatcher.DefaultDispatcher. Please check if mydispatcher is properly registered.", dispatcherFeature)
-	}
-
 	controller := &Controller{
 		server:     server,
 		config:     config,
@@ -74,7 +68,8 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		ibm:        server.GetFeature(inbound.ManagerType()).(inbound.Manager),
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
-		dispatcher: customDispatcher,
+		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
+		dispatcher: server.GetFeature(mydispatcher.Type()).(*mydispatcher.DefaultDispatcher),
 		startAt:    time.Now(),
 		logger:     logger,
 	}
@@ -535,7 +530,11 @@ func (c *Controller) userInfoMonitor() (err error) {
 	UpdatePeriodic := int64(c.config.UpdatePeriodic)
 	limitedUsers := make([]api.UserInfo, 0)
 	for _, user := range *c.userList {
-		up, down, upCounter, downCounter := c.getTraffic(c.buildUserTag(&user))
+		userTag := c.buildUserTag(&user)
+		up, down, upCounter, downCounter := c.getTraffic(userTag)
+		if down > 0 {
+			c.logger.Printf("Traffic counted: tag=%s up=%d down=%d", userTag, up, down)
+		}
 		if up > 0 || down > 0 {
 			// Over speed users
 			if AutoSpeedLimit > 0 {
@@ -577,6 +576,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		}
 	}
 	if len(userTraffic) > 0 {
+		c.logger.Printf("Reporting %d user(s) traffic to panel; example: UID=%d up=%d down=%d", len(userTraffic), userTraffic[0].UID, userTraffic[0].Upload, userTraffic[0].Download)
 		var err error // Define an empty error
 		if !c.config.DisableUploadTraffic {
 			err = c.apiClient.ReportUserTraffic(&userTraffic)
