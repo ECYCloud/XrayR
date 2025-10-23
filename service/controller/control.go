@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/protocol"
@@ -55,9 +56,15 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 			destStr = ob.Target.String()
 		}
 
+		// Determine node tag dynamically from email (format: tag|email|uid)
+		nodeTag := w.tag
+		if idx := strings.IndexByte(email, '|'); idx > 0 {
+			nodeTag = email[:idx]
+		}
+
 		// Audit check: reject immediately on hit
 		if w.ruleMgr != nil && email != "" && destStr != "" {
-			if w.ruleMgr.Detect(w.tag, destStr, email) {
+			if w.ruleMgr.Detect(nodeTag, destStr, email) {
 				// close link
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
@@ -67,7 +74,7 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 
 		// Device limit and rate limit
 		if w.limiter != nil && email != "" {
-			if bucket, ok, reject := w.limiter.GetUserBucket(w.tag, email, srcIP); reject {
+			if bucket, ok, reject := w.limiter.GetUserBucket(nodeTag, email, srcIP); reject {
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
 				return
