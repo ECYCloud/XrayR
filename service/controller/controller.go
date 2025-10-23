@@ -17,7 +17,9 @@ import (
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/mylego"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -60,6 +62,20 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"Type": api.Describe().NodeType,
 		"ID":   api.Describe().NodeID,
 	})
+	// Try to get custom dispatcher; tests may not register it, so provide a safe fallback.
+	var md *mydispatcher.DefaultDispatcher
+	if f := server.GetFeature(mydispatcher.Type()); f != nil {
+		if d, ok := f.(*mydispatcher.DefaultDispatcher); ok {
+			md = d
+		}
+	}
+	if md == nil {
+		md = &mydispatcher.DefaultDispatcher{
+			Limiter:     limiter.New(),
+			RuleManager: rule.New(),
+		}
+	}
+
 	controller := &Controller{
 		server:     server,
 		config:     config,
@@ -69,7 +85,7 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
 		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
-		dispatcher: server.GetFeature(mydispatcher.Type()).(*mydispatcher.DefaultDispatcher),
+		dispatcher: md,
 		startAt:    time.Now(),
 		logger:     logger,
 	}
