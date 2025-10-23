@@ -26,6 +26,7 @@ type Config struct {
 	DeviceLimit         int     `mapstructure:"DeviceLimit"`
 	RuleListPath        string  `mapstructure:"RuleListPath"`
 	DisableCustomConfig bool    `mapstructure:"DisableCustomConfig"`
+	UseRawDeviceLimit   bool    `mapstructure:"UseRawDeviceLimit"`
 }
 
 // NodeStatus Node status

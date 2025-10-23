@@ -26,10 +26,12 @@ Nodes:
       DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
       RuleListPath: # /etc/XrayR/rulelist Path to local rulelist file
       DisableCustomConfig: false # disable custom config for sspanel
+      UseRawDeviceLimit: true # Use panel's device limit directly (no AliveIP adjustment); recommended for strict enforcement
     ControllerConfig:
       ListenIP: 0.0.0.0 # IP address you want to listen
       SendIP: 0.0.0.0 # IP address you want to send pacakage
       UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
+      EnableDeviceRejectLog: true # Emit INFO logs when rejecting connections for device-limit (email, ip, count, limit)
       EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
       DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
       EnableProxyProtocol: false # Only works for WebSocket and TCP

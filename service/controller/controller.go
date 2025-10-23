@@ -75,6 +75,10 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 			RuleManager: rule.New(),
 		}
 	}
+	// Enable per-connection reject INFO log if configured
+	if md != nil && md.Limiter != nil {
+		md.Limiter.EnableRejectInfoLog = config.EnableDeviceRejectLog
+	}
 
 	controller := &Controller{
 		server:     server,

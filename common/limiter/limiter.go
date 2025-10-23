@@ -53,12 +53,14 @@ type InboundInfo struct {
 }
 
 type Limiter struct {
-	InboundInfo *sync.Map // Key: Tag, Value: *InboundInfo
+	InboundInfo         *sync.Map // Key: Tag, Value: *InboundInfo
+	EnableRejectInfoLog bool      // emit INFO log when rejecting for device limit
 }
 
 func New() *Limiter {
 	return &Limiter{
-		InboundInfo: new(sync.Map),
+		InboundInfo:         new(sync.Map),
+		EnableRejectInfoLog: false,
 	}
 }
 
@@ -251,6 +253,9 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 					})
 					// Enforce limit strictly BEFORE inserting new IP
 					if deviceLimit > 0 && count >= deviceLimit {
+						if l.EnableRejectInfoLog {
+							errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(local): email=%s ip=%s count=%d limit=%d tag=%s", key, ip, count, deviceLimit, inboundInfo.Tag))
+						}
 						mu.Unlock()
 						return nil, false, true
 					}
@@ -267,7 +272,7 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 
 		// GlobalLimit
 		if inboundInfo.GlobalLimit.config != nil && inboundInfo.GlobalLimit.config.Enable {
-			if reject := globalLimit(inboundInfo, key, uid, ip, deviceLimit); reject {
+			if reject := globalLimit(inboundInfo, key, uid, ip, deviceLimit, l.EnableRejectInfoLog); reject {
 				return nil, false, true
 			}
 		}
@@ -292,7 +297,7 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 }
 
 // Global device limit
-func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, deviceLimit int) bool {
+func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, deviceLimit int, logEnabled bool) bool {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(inboundInfo.GlobalLimit.config.Timeout)*time.Second)
 	defer cancel()
@@ -305,6 +310,9 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 		if _, ok := err.(*store.NotFound); ok {
 			// Not found: if under limit, create with current ip; else reject
 			if deviceLimit > 0 && 1 > deviceLimit {
+				if logEnabled {
+					errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(global): email=%s ip=%s count=%d limit=%d tag=%s", email, ip, 1, deviceLimit, inboundInfo.Tag))
+				}
 				return true
 			}
 			go pushIP(inboundInfo, uniqueKey, &map[string]int{ip: uid})
@@ -324,6 +332,9 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 
 	// New IP: enforce limit strictly
 	if deviceLimit > 0 && len(*ipMap) >= deviceLimit {
+		if logEnabled {
+			errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(global): email=%s ip=%s count=%d limit=%d tag=%s", email, ip, len(*ipMap), deviceLimit, inboundInfo.Tag))
+		}
 		return true
 	}
 
