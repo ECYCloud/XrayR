@@ -361,6 +361,15 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 
 			return err
 		}
+		// Add blackhole outbound for rejection path
+		blockTag := c.Tag + "_block"
+		if blockOutbound, err2 := BlockOutboundBuilder(blockTag); err2 == nil {
+			if err3 := c.addOutbound(blockOutbound); err3 != nil {
+				c.logger.Printf("failed to add block outbound: %v", err3)
+			}
+		} else {
+			c.logger.Printf("failed to build block outbound: %v", err2)
+		}
 
 	} else {
 		return c.addInboundForSSPlugin(*newNodeInfo)
@@ -393,6 +402,16 @@ func (c *Controller) addInboundForSSPlugin(newNodeInfo api.NodeInfo) (err error)
 
 		return err
 	}
+	// Add blackhole outbound for rejection path (main tag)
+	blockTag := c.Tag + "_block"
+	if blockOutbound, err2 := BlockOutboundBuilder(blockTag); err2 == nil {
+		if err3 := c.addOutbound(blockOutbound); err3 != nil {
+			c.logger.Printf("failed to add block outbound: %v", err3)
+		}
+	} else {
+		c.logger.Printf("failed to build block outbound: %v", err2)
+	}
+
 	// Add an inbound for upper streaming protocol
 	fakeNodeInfo = newNodeInfo
 	fakeNodeInfo.Port++
@@ -407,6 +426,16 @@ func (c *Controller) addInboundForSSPlugin(newNodeInfo api.NodeInfo) (err error)
 
 		return err
 	}
+	// Add blackhole outbound for rejection path (dokodemo tag)
+	dokoBlockTag := dokodemoTag + "_block"
+	if blockOutbound2, err4 := BlockOutboundBuilder(dokoBlockTag); err4 == nil {
+		if err5 := c.addOutbound(blockOutbound2); err5 != nil {
+			c.logger.Printf("failed to add block outbound: %v", err5)
+		}
+	} else {
+		c.logger.Printf("failed to build block outbound: %v", err4)
+	}
+
 	outBoundConfig, err = OutboundBuilder(c.config, &fakeNodeInfo, dokodemoTag)
 	if err != nil {
 

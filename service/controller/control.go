@@ -29,9 +29,11 @@ func (c *Controller) removeInbound(tag string) error {
 // audit rules and ensure userland path is used for stats.
 type dataPathWrapper struct {
 	outbound.Handler
-	pm      policy.Manager
-	sm      stats.Manager
-	limiter *limiter.Limiter
+	pm       policy.Manager
+	sm       stats.Manager
+	limiter  *limiter.Limiter
+	obm      outbound.Manager // to redirect rejected sessions to blackhole outbound
+	blockTag string           // blackhole outbound tag
 	// ruleMgr provides audit detection
 	ruleMgr interface {
 		Detect(tag string, destination string, email string) bool
@@ -77,7 +79,13 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		// Device limit and rate limit
 		if w.limiter != nil && email != "" {
 			if bucket, ok, reject := w.limiter.GetUserBucket(nodeTag, email, srcIP); reject {
-				// close link both directions aggressively
+				// Redirect to blackhole outbound if available; otherwise close aggressively
+				if w.obm != nil && w.blockTag != "" {
+					if bh := w.obm.GetHandler(w.blockTag); bh != nil {
+						bh.Dispatch(ctx, link)
+						return
+					}
+				}
 				common.Close(link.Reader)
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
@@ -124,7 +132,7 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
 	// Wrap outbound handler to enforce audit/device limit/rate limit and keep stats path
-	handler = &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
+	handler = &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, obm: c.obm, blockTag: c.Tag + "_block", ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}

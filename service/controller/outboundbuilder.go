@@ -43,3 +43,11 @@ func OutboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.
 	outboundDetourConfig.Settings = &setting
 	return outboundDetourConfig.Build()
 }
+
+// BlockOutboundBuilder builds a blackhole outbound used to sink traffic when rejecting
+func BlockOutboundBuilder(tag string) (*core.OutboundHandlerConfig, error) {
+	outboundDetourConfig := &conf.OutboundDetourConfig{}
+	outboundDetourConfig.Protocol = "blackhole"
+	outboundDetourConfig.Tag = tag
+	return outboundDetourConfig.Build()
+}
