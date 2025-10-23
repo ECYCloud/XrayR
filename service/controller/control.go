@@ -65,9 +65,11 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		// Audit check: reject immediately on hit
 		if w.ruleMgr != nil && email != "" && destStr != "" {
 			if w.ruleMgr.Detect(nodeTag, destStr, email) {
-				// close link
+				// close link both directions aggressively
+				common.Close(link.Reader)
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
+				common.Interrupt(link.Writer)
 				return
 			}
 		}
@@ -75,8 +77,11 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		// Device limit and rate limit
 		if w.limiter != nil && email != "" {
 			if bucket, ok, reject := w.limiter.GetUserBucket(nodeTag, email, srcIP); reject {
+				// close link both directions aggressively
+				common.Close(link.Reader)
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
+				common.Interrupt(link.Writer)
 				return
 			} else if ok && bucket != nil {
 				// Limit uplink and downlink: wrap Reader and Writer

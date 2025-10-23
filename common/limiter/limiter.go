@@ -45,6 +45,7 @@ type InboundInfo struct {
 	UserInfo       *sync.Map // Key: Email value: UserInfo
 	BucketHub      *sync.Map // key: Email, value: *rate.Limiter
 	UserOnlineIP   *sync.Map // Key: Email, value: *sync.Map{Key: IP(string), value: *localDeviceEntry}
+	DeviceGuard    *sync.Map // Key: Email, value: *sync.Mutex (serialize per-user IP set updates)
 	GlobalLimit    struct {
 		config         *GlobalDeviceLimitConfig
 		globalOnlineIP *marshaler.Marshaler
@@ -67,6 +68,7 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 		NodeSpeedLimit: nodeSpeedLimit,
 		BucketHub:      new(sync.Map),
 		UserOnlineIP:   new(sync.Map),
+		DeviceGuard:    new(sync.Map),
 	}
 
 	if globalLimit != nil && globalLimit.Enable {
@@ -193,35 +195,56 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 			deviceLimit = u.DeviceLimit
 		}
 
-		// Local device limit with TTL and per-IP tracking
-		newIPMap := new(sync.Map)
-		newIPMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: time.Now().Unix()})
-		if v, loaded := inboundInfo.UserOnlineIP.LoadOrStore(email, newIPMap); loaded {
-			ipMap := v.(*sync.Map)
-			now := time.Now().Unix()
-			if existing, ok := ipMap.Load(ip); ok {
-				// Update last seen for existing IP
-				entry := existing.(*localDeviceEntry)
-				entry.LastSeen = now
+		// Local device limit with TTL and per-IP tracking (serialized per user)
+		// Acquire per-user guard to avoid race conditions when multiple new IPs arrive concurrently
+		var mu *sync.Mutex
+		if v, ok := inboundInfo.DeviceGuard.Load(email); ok {
+			mu = v.(*sync.Mutex)
+		} else {
+			newMu := &sync.Mutex{}
+			if v2, loaded := inboundInfo.DeviceGuard.LoadOrStore(email, newMu); loaded {
+				mu = v2.(*sync.Mutex)
 			} else {
-				// Store new IP and evaluate device count (ignoring expired entries)
-				ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
-				counter := 0
-				ipMap.Range(func(k, v any) bool {
-					entry := v.(*localDeviceEntry)
-					if now-entry.LastSeen <= localDeviceExpirySec {
-						counter++
-					} else {
-						ipMap.Delete(k)
-					}
-					return true
-				})
-				if deviceLimit > 0 && counter > deviceLimit {
-					ipMap.Delete(ip)
-					return nil, false, true
-				}
+				mu = newMu
 			}
 		}
+		mu.Lock()
+		{
+			now := time.Now().Unix()
+			// Fast path: try load existing ip map
+			if v, ok := inboundInfo.UserOnlineIP.Load(email); ok {
+				ipMap := v.(*sync.Map)
+				// Check if IP already tracked
+				if existing, ok := ipMap.Load(ip); ok {
+					entry := existing.(*localDeviceEntry)
+					entry.LastSeen = now
+				} else {
+					// Count valid IPs and prune expired
+					count := 0
+					ipMap.Range(func(k, v any) bool {
+						entry := v.(*localDeviceEntry)
+						if now-entry.LastSeen <= localDeviceExpirySec {
+							count++
+						} else {
+							ipMap.Delete(k)
+						}
+						return true
+					})
+					// Enforce limit strictly BEFORE inserting new IP
+					if deviceLimit > 0 && count >= deviceLimit {
+						mu.Unlock()
+						return nil, false, true
+					}
+					ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
+				}
+			} else {
+				// First IP for this user on this node
+				ipMap := new(sync.Map)
+				ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
+				inboundInfo.UserOnlineIP.Store(email, ipMap)
+			}
+		}
+		mu.Unlock()
 
 		// GlobalLimit
 		if inboundInfo.GlobalLimit.config != nil && inboundInfo.GlobalLimit.config.Enable {
