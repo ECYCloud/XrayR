@@ -119,6 +119,7 @@ type DetectRule struct {
 type DetectResult struct {
 	UID    int
 	RuleID int
+	IP     string
 }
 
 type REALITYConfig struct {

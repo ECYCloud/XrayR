@@ -412,7 +412,7 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	sessionInbound := session.InboundFromContext(ctx)
 	// Whether the inbound connection contains a user
 	if sessionInbound.User != nil {
-		if d.RuleManager.Detect(sessionInbound.Tag, destination.String(), sessionInbound.User.Email) {
+		if d.RuleManager.Detect(sessionInbound.Tag, destination.String(), sessionInbound.User.Email, sessionInbound.Source.Address.IP().String()) {
 			errors.LogError(ctx, fmt.Sprintf("User %s access %s reject by rule", sessionInbound.User.Email, destination.String()))
 			newError("destination is reject by rule")
 			common.Close(link.Writer)

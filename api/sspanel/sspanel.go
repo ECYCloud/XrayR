@@ -390,6 +390,7 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 		data[i] = IllegalItem{
 			ID:  r.RuleID,
 			UID: r.UID,
+			IP:  r.IP,
 		}
 	}
 	postData := &PostData{Data: data}

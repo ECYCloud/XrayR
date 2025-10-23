@@ -34,7 +34,7 @@ type dataPathWrapper struct {
 	limiter *limiter.Limiter
 	// ruleMgr provides audit detection
 	ruleMgr interface {
-		Detect(tag string, destination string, email string) bool
+		Detect(tag string, destination string, email string, srcIP string) bool
 	}
 	// tag identifies this node/inbound tag for limiter and rules
 	tag string
@@ -64,7 +64,7 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 
 		// Audit check: reject immediately on hit
 		if w.ruleMgr != nil && email != "" && destStr != "" {
-			if w.ruleMgr.Detect(nodeTag, destStr, email) {
+			if w.ruleMgr.Detect(nodeTag, destStr, email, srcIP) {
 				// close link
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
