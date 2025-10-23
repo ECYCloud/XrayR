@@ -22,17 +22,6 @@ import (
 	"github.com/ECYCloud/XrayR/api"
 )
 
-// localDeviceEntry represents a single online IP for a user with last-seen timestamp.
-type localDeviceEntry struct {
-	UID      int
-	LastSeen int64 // unix seconds
-}
-
-// localDeviceExpirySec is the TTL for local online IP entries.
-// It should be longer than the controller report interval to avoid prematurely
-// dropping entries and letting users bypass device limit between reports.
-const localDeviceExpirySec = 120 // 2 minutes
-
 type UserInfo struct {
 	UID         int
 	SpeedLimit  uint64
@@ -44,8 +33,7 @@ type InboundInfo struct {
 	NodeSpeedLimit uint64
 	UserInfo       *sync.Map // Key: Email value: UserInfo
 	BucketHub      *sync.Map // key: Email, value: *rate.Limiter
-	UserOnlineIP   *sync.Map // Key: Email, value: *sync.Map{Key: IP(string), value: *localDeviceEntry}
-	DeviceGuard    *sync.Map // Key: Email, value: *sync.Mutex (serialize per-user IP set updates)
+	UserOnlineIP   *sync.Map // Key: Email, value: {Key: IP, value: UID}
 	GlobalLimit    struct {
 		config         *GlobalDeviceLimitConfig
 		globalOnlineIP *marshaler.Marshaler
@@ -53,14 +41,12 @@ type InboundInfo struct {
 }
 
 type Limiter struct {
-	InboundInfo         *sync.Map // Key: Tag, Value: *InboundInfo
-	EnableRejectInfoLog bool      // emit INFO log when rejecting for device limit
+	InboundInfo *sync.Map // Key: Tag, Value: *InboundInfo
 }
 
 func New() *Limiter {
 	return &Limiter{
-		InboundInfo:         new(sync.Map),
-		EnableRejectInfoLog: false,
+		InboundInfo: new(sync.Map),
 	}
 }
 
@@ -70,7 +56,6 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 		NodeSpeedLimit: nodeSpeedLimit,
 		BucketHub:      new(sync.Map),
 		UserOnlineIP:   new(sync.Map),
-		DeviceGuard:    new(sync.Map),
 	}
 
 	if globalLimit != nil && globalLimit.Enable {
@@ -100,8 +85,7 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 
 	userMap := new(sync.Map)
 	for _, u := range *userList {
-		// Normalize key as tag||uid to avoid mismatch when protocol omits email
-		userMap.Store(fmt.Sprintf("%s||%d", tag, u.UID), UserInfo{
+		userMap.Store(fmt.Sprintf("%s|%s|%d", tag, u.Email, u.UID), UserInfo{
 			UID:         u.UID,
 			SpeedLimit:  u.SpeedLimit,
 			DeviceLimit: u.DeviceLimit,
@@ -117,8 +101,7 @@ func (l *Limiter) UpdateInboundLimiter(tag string, updatedUserList *[]api.UserIn
 		inboundInfo := value.(*InboundInfo)
 		// Update User info
 		for _, u := range *updatedUserList {
-			// Normalize key as tag||uid
-			inboundInfo.UserInfo.Store(fmt.Sprintf("%s||%d", tag, u.UID), UserInfo{
+			inboundInfo.UserInfo.Store(fmt.Sprintf("%s|%s|%d", tag, u.Email, u.UID), UserInfo{
 				UID:         u.UID,
 				SpeedLimit:  u.SpeedLimit,
 				DeviceLimit: u.DeviceLimit,
@@ -126,13 +109,13 @@ func (l *Limiter) UpdateInboundLimiter(tag string, updatedUserList *[]api.UserIn
 			// Update old limiter bucket
 			limit := determineRate(inboundInfo.NodeSpeedLimit, u.SpeedLimit)
 			if limit > 0 {
-				if bucket, ok := inboundInfo.BucketHub.Load(fmt.Sprintf("%s||%d", tag, u.UID)); ok {
+				if bucket, ok := inboundInfo.BucketHub.Load(fmt.Sprintf("%s|%s|%d", tag, u.Email, u.UID)); ok {
 					limiter := bucket.(*rate.Limiter)
 					limiter.SetLimit(rate.Limit(limit))
 					limiter.SetBurst(int(limit))
 				}
 			} else {
-				inboundInfo.BucketHub.Delete(fmt.Sprintf("%s||%d", tag, u.UID))
+				inboundInfo.BucketHub.Delete(fmt.Sprintf("%s|%s|%d", tag, u.Email, u.UID))
 			}
 		}
 	} else {
@@ -152,27 +135,23 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 	if value, ok := l.InboundInfo.Load(tag); ok {
 		inboundInfo := value.(*InboundInfo)
 		// Clear Speed Limiter bucket for users who are not online
-		inboundInfo.BucketHub.Range(func(key, value any) bool {
+		inboundInfo.BucketHub.Range(func(key, value interface{}) bool {
 			email := key.(string)
 			if _, exists := inboundInfo.UserOnlineIP.Load(email); !exists {
 				inboundInfo.BucketHub.Delete(email)
 			}
 			return true
 		})
-		now := time.Now().Unix()
-		inboundInfo.UserOnlineIP.Range(func(key, value any) bool {
+		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
+			email := key.(string)
 			ipMap := value.(*sync.Map)
-			ipMap.Range(func(k, v any) bool {
-				ip := k.(string)
-				entry := v.(*localDeviceEntry)
-				// Skip and clean expired records
-				if now-entry.LastSeen > localDeviceExpirySec {
-					ipMap.Delete(ip)
-					return true
-				}
-				onlineUser = append(onlineUser, api.OnlineUser{UID: entry.UID, IP: ip})
+			ipMap.Range(func(key, value interface{}) bool {
+				uid := value.(int)
+				ip := key.(string)
+				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
 				return true
 			})
+			inboundInfo.UserOnlineIP.Delete(email) // Reset online device
 			return true
 		})
 	} else {
@@ -192,87 +171,36 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 		inboundInfo := value.(*InboundInfo)
 		nodeLimit := inboundInfo.NodeSpeedLimit
 
-		// Normalize user key as tag||uid; fallback to raw email if not parseable
-		key := email
-		if p1 := strings.IndexByte(email, '|'); p1 > 0 && strings.HasPrefix(email, tag+"|") {
-			if p2 := strings.LastIndex(email, "|"); p2 > p1 {
-				uidPart := email[p2+1:]
-				if uidPart != "" {
-					key = fmt.Sprintf("%s||%s", tag, uidPart)
-				}
-			}
-		}
-		if v, ok := inboundInfo.UserInfo.Load(key); ok {
+		if v, ok := inboundInfo.UserInfo.Load(email); ok {
 			u := v.(UserInfo)
 			uid = u.UID
 			userLimit = u.SpeedLimit
 			deviceLimit = u.DeviceLimit
-		} else if key != email {
-			if v2, ok2 := inboundInfo.UserInfo.Load(email); ok2 {
-				u := v2.(UserInfo)
-				uid = u.UID
-				userLimit = u.SpeedLimit
-				deviceLimit = u.DeviceLimit
-			}
 		}
 
-		// Local device limit with TTL and per-IP tracking (serialized per user)
-		// Acquire per-user guard to avoid race conditions when multiple new IPs arrive concurrently
-		var mu *sync.Mutex
-		if v, ok := inboundInfo.DeviceGuard.Load(key); ok {
-			mu = v.(*sync.Mutex)
-		} else {
-			newMu := &sync.Mutex{}
-			if v2, loaded := inboundInfo.DeviceGuard.LoadOrStore(key, newMu); loaded {
-				mu = v2.(*sync.Mutex)
-			} else {
-				mu = newMu
-			}
-		}
-		mu.Lock()
-		{
-			now := time.Now().Unix()
-			// Fast path: try load existing ip map
-			if v, ok := inboundInfo.UserOnlineIP.Load(key); ok {
-				ipMap := v.(*sync.Map)
-				// Check if IP already tracked
-				if existing, ok := ipMap.Load(ip); ok {
-					entry := existing.(*localDeviceEntry)
-					entry.LastSeen = now
-				} else {
-					// Count valid IPs and prune expired
-					count := 0
-					ipMap.Range(func(k, v any) bool {
-						entry := v.(*localDeviceEntry)
-						if now-entry.LastSeen <= localDeviceExpirySec {
-							count++
-						} else {
-							ipMap.Delete(k)
-						}
-						return true
-					})
-					// Enforce limit strictly BEFORE inserting new IP
-					if deviceLimit > 0 && count >= deviceLimit {
-						if l.EnableRejectInfoLog {
-							errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(local): email=%s ip=%s count=%d limit=%d tag=%s", key, ip, count, deviceLimit, inboundInfo.Tag))
-						}
-						mu.Unlock()
-						return nil, false, true
-					}
-					ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
+		// Local device limit
+		ipMap := new(sync.Map)
+		ipMap.Store(ip, uid)
+		// If any device is online
+		if v, ok := inboundInfo.UserOnlineIP.LoadOrStore(email, ipMap); ok {
+			ipMap := v.(*sync.Map)
+			// If this is a new ip
+			if _, ok := ipMap.LoadOrStore(ip, uid); !ok {
+				counter := 0
+				ipMap.Range(func(key, value interface{}) bool {
+					counter++
+					return true
+				})
+				if counter > deviceLimit && deviceLimit > 0 {
+					ipMap.Delete(ip)
+					return nil, false, true
 				}
-			} else {
-				// First IP for this user on this node
-				ipMap := new(sync.Map)
-				ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
-				inboundInfo.UserOnlineIP.Store(key, ipMap)
 			}
 		}
-		mu.Unlock()
 
 		// GlobalLimit
 		if inboundInfo.GlobalLimit.config != nil && inboundInfo.GlobalLimit.config.Enable {
-			if reject := globalLimit(inboundInfo, key, uid, ip, deviceLimit, l.EnableRejectInfoLog); reject {
+			if reject := globalLimit(inboundInfo, email, uid, ip, deviceLimit); reject {
 				return nil, false, true
 			}
 		}
@@ -281,7 +209,7 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 		limit := determineRate(nodeLimit, userLimit) // Determine the speed limit rate
 		if limit > 0 {
 			limiter := rate.NewLimiter(rate.Limit(limit), int(limit)) // Byte/s
-			if v, ok := inboundInfo.BucketHub.LoadOrStore(key, limiter); ok {
+			if v, ok := inboundInfo.BucketHub.LoadOrStore(email, limiter); ok {
 				bucket := v.(*rate.Limiter)
 				return bucket, true, false
 			} else {
@@ -297,7 +225,7 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 }
 
 // Global device limit
-func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, deviceLimit int, logEnabled bool) bool {
+func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, deviceLimit int) bool {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(inboundInfo.GlobalLimit.config.Timeout)*time.Second)
 	defer cancel()
@@ -308,13 +236,7 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 	v, err := inboundInfo.GlobalLimit.globalOnlineIP.Get(ctx, uniqueKey, new(map[string]int))
 	if err != nil {
 		if _, ok := err.(*store.NotFound); ok {
-			// Not found: if under limit, create with current ip; else reject
-			if deviceLimit > 0 && 1 > deviceLimit {
-				if logEnabled {
-					errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(global): email=%s ip=%s count=%d limit=%d tag=%s", email, ip, 1, deviceLimit, inboundInfo.Tag))
-				}
-				return true
-			}
+			// If the email is a new device
 			go pushIP(inboundInfo, uniqueKey, &map[string]int{ip: uid})
 		} else {
 			errors.LogErrorInner(context.Background(), err, "cache service")
@@ -323,23 +245,17 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 	}
 
 	ipMap := v.(*map[string]int)
-	// If IP already exists, allow and refresh store
-	if _, ok := (*ipMap)[ip]; ok {
-		(*ipMap)[ip] = uid
-		go pushIP(inboundInfo, uniqueKey, ipMap)
-		return false
-	}
-
-	// New IP: enforce limit strictly
-	if deviceLimit > 0 && len(*ipMap) >= deviceLimit {
-		if logEnabled {
-			errors.LogInfo(context.Background(), fmt.Sprintf("DeviceLimit reject(global): email=%s ip=%s count=%d limit=%d tag=%s", email, ip, len(*ipMap), deviceLimit, inboundInfo.Tag))
-		}
+	// Reject device reach limit directly
+	if deviceLimit > 0 && len(*ipMap) > deviceLimit {
 		return true
 	}
 
-	(*ipMap)[ip] = uid
-	go pushIP(inboundInfo, uniqueKey, ipMap)
+	// If the ip is not in cache
+	if _, ok := (*ipMap)[ip]; !ok {
+		(*ipMap)[ip] = uid
+		go pushIP(inboundInfo, uniqueKey, ipMap)
+	}
+
 	return false
 }
 

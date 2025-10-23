@@ -24,7 +24,6 @@ type Config struct {
 	DisableLocalREALITYConfig bool                             `mapstructure:"DisableLocalREALITYConfig"`
 	EnableREALITY             bool                             `mapstructure:"EnableREALITY"`
 	REALITYConfigs            *REALITYConfig                   `mapstructure:"REALITYConfigs"`
-	EnableDeviceRejectLog     bool                             `mapstructure:"EnableDeviceRejectLog"`
 }
 
 type AutoSpeedLimitConfig struct {

@@ -40,7 +40,6 @@ type APIClient struct {
 	DisableCustomConfig bool
 	LocalRuleList       []api.DetectRule
 	LastReportOnline    map[int]int
-	UseRawDeviceLimit   bool
 	access              sync.Mutex
 	version             string
 	eTags               map[string]string
@@ -86,7 +85,6 @@ func New(apiConfig *api.Config) *APIClient {
 		LocalRuleList:       localRuleList,
 		DisableCustomConfig: apiConfig.DisableCustomConfig,
 		LastReportOnline:    make(map[int]int),
-		UseRawDeviceLimit:   apiConfig.UseRawDeviceLimit,
 		eTags:               make(map[string]string),
 	}
 }
@@ -698,21 +696,21 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]
 			deviceLimit = user.DeviceLimit
 		}
 
-		if !c.UseRawDeviceLimit {
-			// Legacy behavior: heuristically adjust per-node allowance using AliveIP and LastReportOnline
-			if deviceLimit > 0 && user.AliveIP > 0 {
-				lastOnline := 0
-				if v, ok := c.LastReportOnline[user.ID]; ok {
-					lastOnline = v
-				}
-				if localDeviceLimit = deviceLimit - user.AliveIP + lastOnline; localDeviceLimit > 0 {
-					deviceLimit = localDeviceLimit
-				} else if lastOnline > 0 {
-					deviceLimit = lastOnline
-				} else {
-					// Previously: continue (skip user). Keep the user to ensure limiter can enforce.
-					deviceLimit = 0
-				}
+		// If there is still device available, add the user
+		if deviceLimit > 0 && user.AliveIP > 0 {
+			lastOnline := 0
+			if v, ok := c.LastReportOnline[user.ID]; ok {
+				lastOnline = v
+			}
+			// If there are any available device.
+			if localDeviceLimit = deviceLimit - user.AliveIP + lastOnline; localDeviceLimit > 0 {
+				deviceLimit = localDeviceLimit
+				// If this backend server has reported any user in the last reporting period.
+			} else if lastOnline > 0 {
+				deviceLimit = lastOnline
+				// Remove this user.
+			} else {
+				continue
 			}
 		}
 
