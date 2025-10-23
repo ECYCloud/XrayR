@@ -22,6 +22,17 @@ import (
 	"github.com/ECYCloud/XrayR/api"
 )
 
+// localDeviceEntry represents a single online IP for a user with last-seen timestamp.
+type localDeviceEntry struct {
+	UID      int
+	LastSeen int64 // unix seconds
+}
+
+// localDeviceExpirySec is the TTL for local online IP entries.
+// It should be longer than the controller report interval to avoid prematurely
+// dropping entries and letting users bypass device limit between reports.
+const localDeviceExpirySec = 120 // 2 minutes
+
 type UserInfo struct {
 	UID         int
 	SpeedLimit  uint64
@@ -33,7 +44,7 @@ type InboundInfo struct {
 	NodeSpeedLimit uint64
 	UserInfo       *sync.Map // Key: Email value: UserInfo
 	BucketHub      *sync.Map // key: Email, value: *rate.Limiter
-	UserOnlineIP   *sync.Map // Key: Email, value: {Key: IP, value: UID}
+	UserOnlineIP   *sync.Map // Key: Email, value: *sync.Map{Key: IP(string), value: *localDeviceEntry}
 	GlobalLimit    struct {
 		config         *GlobalDeviceLimitConfig
 		globalOnlineIP *marshaler.Marshaler
@@ -135,23 +146,27 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 	if value, ok := l.InboundInfo.Load(tag); ok {
 		inboundInfo := value.(*InboundInfo)
 		// Clear Speed Limiter bucket for users who are not online
-		inboundInfo.BucketHub.Range(func(key, value interface{}) bool {
+		inboundInfo.BucketHub.Range(func(key, value any) bool {
 			email := key.(string)
 			if _, exists := inboundInfo.UserOnlineIP.Load(email); !exists {
 				inboundInfo.BucketHub.Delete(email)
 			}
 			return true
 		})
-		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
-			email := key.(string)
+		now := time.Now().Unix()
+		inboundInfo.UserOnlineIP.Range(func(key, value any) bool {
 			ipMap := value.(*sync.Map)
-			ipMap.Range(func(key, value interface{}) bool {
-				uid := value.(int)
-				ip := key.(string)
-				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
+			ipMap.Range(func(k, v any) bool {
+				ip := k.(string)
+				entry := v.(*localDeviceEntry)
+				// Skip and clean expired records
+				if now-entry.LastSeen > localDeviceExpirySec {
+					ipMap.Delete(ip)
+					return true
+				}
+				onlineUser = append(onlineUser, api.OnlineUser{UID: entry.UID, IP: ip})
 				return true
 			})
-			inboundInfo.UserOnlineIP.Delete(email) // Reset online device
 			return true
 		})
 	} else {
@@ -178,20 +193,30 @@ func (l *Limiter) GetUserBucket(tag string, email string, ip string) (limiter *r
 			deviceLimit = u.DeviceLimit
 		}
 
-		// Local device limit
-		ipMap := new(sync.Map)
-		ipMap.Store(ip, uid)
-		// If any device is online
-		if v, ok := inboundInfo.UserOnlineIP.LoadOrStore(email, ipMap); ok {
+		// Local device limit with TTL and per-IP tracking
+		newIPMap := new(sync.Map)
+		newIPMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: time.Now().Unix()})
+		if v, loaded := inboundInfo.UserOnlineIP.LoadOrStore(email, newIPMap); loaded {
 			ipMap := v.(*sync.Map)
-			// If this is a new ip
-			if _, ok := ipMap.LoadOrStore(ip, uid); !ok {
+			now := time.Now().Unix()
+			if existing, ok := ipMap.Load(ip); ok {
+				// Update last seen for existing IP
+				entry := existing.(*localDeviceEntry)
+				entry.LastSeen = now
+			} else {
+				// Store new IP and evaluate device count (ignoring expired entries)
+				ipMap.Store(ip, &localDeviceEntry{UID: uid, LastSeen: now})
 				counter := 0
-				ipMap.Range(func(key, value interface{}) bool {
-					counter++
+				ipMap.Range(func(k, v any) bool {
+					entry := v.(*localDeviceEntry)
+					if now-entry.LastSeen <= localDeviceExpirySec {
+						counter++
+					} else {
+						ipMap.Delete(k)
+					}
 					return true
 				})
-				if counter > deviceLimit && deviceLimit > 0 {
+				if deviceLimit > 0 && counter > deviceLimit {
 					ipMap.Delete(ip)
 					return nil, false, true
 				}
@@ -236,7 +261,10 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 	v, err := inboundInfo.GlobalLimit.globalOnlineIP.Get(ctx, uniqueKey, new(map[string]int))
 	if err != nil {
 		if _, ok := err.(*store.NotFound); ok {
-			// If the email is a new device
+			// Not found: if under limit, create with current ip; else reject
+			if deviceLimit > 0 && 1 > deviceLimit {
+				return true
+			}
 			go pushIP(inboundInfo, uniqueKey, &map[string]int{ip: uid})
 		} else {
 			errors.LogErrorInner(context.Background(), err, "cache service")
@@ -245,17 +273,20 @@ func globalLimit(inboundInfo *InboundInfo, email string, uid int, ip string, dev
 	}
 
 	ipMap := v.(*map[string]int)
-	// Reject device reach limit directly
-	if deviceLimit > 0 && len(*ipMap) > deviceLimit {
+	// If IP already exists, allow and refresh store
+	if _, ok := (*ipMap)[ip]; ok {
+		(*ipMap)[ip] = uid
+		go pushIP(inboundInfo, uniqueKey, ipMap)
+		return false
+	}
+
+	// New IP: enforce limit strictly
+	if deviceLimit > 0 && len(*ipMap) >= deviceLimit {
 		return true
 	}
 
-	// If the ip is not in cache
-	if _, ok := (*ipMap)[ip]; !ok {
-		(*ipMap)[ip] = uid
-		go pushIP(inboundInfo, uniqueKey, ipMap)
-	}
-
+	(*ipMap)[ip] = uid
+	go pushIP(inboundInfo, uniqueKey, ipMap)
 	return false
 }
 
