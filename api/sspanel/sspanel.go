@@ -682,12 +682,9 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 
 // ParseUserListResponse parse the response for the given node info format
 func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]api.UserInfo, error) {
+	// Lock while reading LastReportOnline snapshot; do NOT clear it here.
 	c.access.Lock()
-	// Clear Last report log
-	defer func() {
-		c.LastReportOnline = make(map[int]int)
-		c.access.Unlock()
-	}()
+	defer c.access.Unlock()
 
 	var deviceLimit, localDeviceLimit = 0, 0
 	var speedLimit uint64 = 0

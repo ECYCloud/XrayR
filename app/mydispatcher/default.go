@@ -146,9 +146,9 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType and registers as the core routing.Dispatcher.
+// Type implements common.HasType for registering as a separate feature, not overriding core dispatcher.
 func (*DefaultDispatcher) Type() interface{} {
-	return routing.DispatcherType()
+	return Type()
 }
 
 // Start implements common.Runnable.

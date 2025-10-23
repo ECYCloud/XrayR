@@ -3,10 +3,11 @@ package mydispatcher
 
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
-// Type returns the feature type token for the custom dispatcher feature.
-// It intentionally differs from routing.DispatcherType() to avoid replacing
-// the core dispatcher and causing type assertion panics in xray-core.
+import "github.com/xtls/xray-core/features/routing"
+
+// Type returns the feature type token so this custom dispatcher REPLACES
+// the core routing.Dispatcher. This ensures our rate limiting, device limit,
+// audit detection and stats wrapping are actually applied on data path.
 func Type() interface{} {
-	// Consumers should use server.GetFeature(mydispatcher.Type()) to access it.
-	return (*DefaultDispatcher)(nil)
+	return routing.DispatcherType()
 }

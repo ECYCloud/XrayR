@@ -8,53 +8,44 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/xtls/xray-core/app/proxyman"
-	"github.com/xtls/xray-core/app/stats"
-	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/api/sspanel"
-	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
 	"github.com/ECYCloud/XrayR/common/mylego"
 	. "github.com/ECYCloud/XrayR/service/controller"
 )
 
 func TestController(t *testing.T) {
-	// Build minimal core config that registers our custom dispatcher, like the panel does
-	dnsConf := &conf.DNSConfig{}
-	routerConf := &conf.RouterConfig{}
-	policyConf := &conf.PolicyConfig{}
-	policyConf.Levels = map[uint32]*conf.Policy{0: {
+	serverConfig := &conf.Config{
+		Stats:     &conf.StatsConfig{},
+		LogConfig: &conf.LogConfig{LogLevel: "debug"},
+	}
+	policyConfig := &conf.PolicyConfig{}
+	policyConfig.Levels = map[uint32]*conf.Policy{0: {
 		StatsUserUplink:   true,
 		StatsUserDownlink: true,
 	}}
+	serverConfig.Policy = policyConfig
+	config, _ := serverConfig.Build()
 
-	policy, _ := policyConf.Build()
-	dns, _ := dnsConf.Build()
-	router, _ := routerConf.Build()
-
-	config := &core.Config{
-		App: []*serial.TypedMessage{
-			serial.ToTypedMessage(&mydispatcher.Config{}),
-			serial.ToTypedMessage(&stats.Config{}),
-			serial.ToTypedMessage(&proxyman.InboundConfig{}),
-			serial.ToTypedMessage(&proxyman.OutboundConfig{}),
-			serial.ToTypedMessage(policy),
-			serial.ToTypedMessage(dns),
-			serial.ToTypedMessage(router),
-		},
-	}
+	// config := &core.Config{
+	// 	App: []*serial.TypedMessage{
+	// 		serial.ToTypedMessage(&dispatcher.Config{}),
+	// 		serial.ToTypedMessage(&proxyman.InboundConfig{}),
+	// 		serial.ToTypedMessage(&proxyman.OutboundConfig{}),
+	// 		serial.ToTypedMessage(&stats.Config{}),
+	// 	}}
 
 	server, err := core.New(config)
 	defer server.Close()
 	if err != nil {
-		t.Fatalf("failed to create instance: %s", err)
+		t.Errorf("failed to create instance: %s", err)
 	}
 	if err = server.Start(); err != nil {
-		t.Fatalf("Failed to start instance: %s", err)
+		t.Errorf("Failed to start instance: %s", err)
 	}
 	certConfig := &mylego.CertConfig{
 		CertMode:   "http",
