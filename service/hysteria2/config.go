@@ -92,6 +92,7 @@ func (h *Hysteria2Service) buildServerConfig() (*server.Config, error) {
 		BandwidthConfig:       bandwidth,
 		IgnoreClientBandwidth: hy.IgnoreClientBandwidth,
 		Authenticator:         &hyAuthenticator{svc: h},
+		EventLogger:           &hyEventLogger{svc: h},
 		TrafficLogger:         &hyTrafficLogger{svc: h},
 	}
 

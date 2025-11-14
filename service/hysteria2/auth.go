@@ -2,6 +2,8 @@ package hysteria2
 
 import (
 	"net"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // hyAuthenticator implements server.Authenticator and performs user lookup
@@ -11,13 +13,19 @@ type hyAuthenticator struct {
 }
 
 func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (bool, string) {
-	if auth == "" {
-		return false, ""
+	logger := log.NewEntry(log.StandardLogger())
+	if a.svc != nil && a.svc.logger != nil {
+		logger = a.svc.logger
 	}
 
-	host, _, err := net.SplitHostPort(addr.String())
-	if err != nil {
-		host = addr.String()
+	host := addr.String()
+	if h, _, err := net.SplitHostPort(addr.String()); err == nil {
+		host = h
+	}
+
+	if auth == "" {
+		logger.WithField("remote", host).Warn("Hysteria2 auth failed: empty auth string")
+		return false, ""
 	}
 
 	a.svc.mu.Lock()
@@ -25,6 +33,10 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 
 	user, ok := a.svc.users[auth]
 	if !ok {
+		logger.WithFields(log.Fields{
+			"remote": host,
+			"auth":   auth,
+		}).Warn("Hysteria2 auth failed: unknown UUID")
 		return false, ""
 	}
 
@@ -37,7 +49,12 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 	if _, exists := ipSet[host]; !exists {
 		// New device
 		if user.DeviceLimit > 0 && len(ipSet) >= user.DeviceLimit {
-			a.svc.logger.Warnf("Hysteria2 user %s (UID=%d) exceeded device limit %d from %s", user.Email, user.UID, user.DeviceLimit, host)
+			logger.WithFields(log.Fields{
+				"email":       user.Email,
+				"uid":         user.UID,
+				"deviceLimit": user.DeviceLimit,
+				"remote":      host,
+			}).Warn("Hysteria2 user exceeded device limit")
 			return false, ""
 		}
 		ipSet[host] = struct{}{}
@@ -45,4 +62,3 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 
 	return true, auth
 }
-
