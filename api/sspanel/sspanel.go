@@ -790,6 +790,10 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		if nodeConfig.Network != "" {
 			transportProtocol = nodeConfig.Network // try to read transport protocol from config
 		}
+	case "Hysteria2":
+		// Hysteria2 uses UDP transport and always requires TLS on the server side
+		transportProtocol = "udp"
+		enableTLS = true
 	}
 
 	// parse reality config
@@ -827,6 +831,26 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		Header:            nodeConfig.Header,
 		EnableREALITY:     nodeConfig.EnableREALITY,
 		REALITYConfig:     realityConfig,
+	}
+
+	// Attach Hysteria2-specific configuration when needed
+	if c.NodeType == "Hysteria2" {
+		up := nodeConfig.UpMbps
+		if up == 0 {
+			up = 100
+		}
+		down := nodeConfig.DownMbps
+		if down == 0 {
+			down = 100
+		}
+
+		nodeInfo.Hysteria2Config = &api.Hysteria2Config{
+			Obfs:                  nodeConfig.Obfs,
+			ObfsPassword:          nodeConfig.ObfsPassword,
+			UpMbps:                up,
+			DownMbps:              down,
+			IgnoreClientBandwidth: nodeConfig.IgnoreClientBandwidth,
+		}
 	}
 
 	return nodeInfo, nil

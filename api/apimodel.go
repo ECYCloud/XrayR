@@ -78,6 +78,15 @@ type NodeInfo struct {
 	Security            string
 	Key                 string
 	RejectUnknownSni    bool
+	Hysteria2Config     *Hysteria2Config
+}
+
+type Hysteria2Config struct {
+	Obfs                  string
+	ObfsPassword          string
+	UpMbps                int
+	DownMbps              int
+	IgnoreClientBandwidth bool
 }
 
 type UserInfo struct {

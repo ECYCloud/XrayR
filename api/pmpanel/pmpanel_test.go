@@ -150,8 +150,8 @@ func TestReportIllegal(t *testing.T) {
 	client := CreateClient()
 
 	detectResult := []api.DetectResult{
-		{1, 2},
-		{1, 3},
+		{UID: 1, RuleID: 2, IP: "127.0.0.1"},
+		{UID: 1, RuleID: 3, IP: "127.0.0.2"},
 	}
 	client.Debug()
 	err := client.ReportIllegal(&detectResult)

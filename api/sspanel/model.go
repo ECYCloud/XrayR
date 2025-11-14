@@ -16,24 +16,33 @@ type NodeInfoResponse struct {
 }
 
 type CustomConfig struct {
-	OffsetPortNode string          `json:"offset_port_node"`
-	Host           string          `json:"host"`
-	Method         string          `json:"method"`
-	ServerKey      string          `json:"server_key"`
-	TLS            string          `json:"tls"`
-	EnableVless    string          `json:"enable_vless"`
-	Network        string          `json:"network"`
-	Security       string          `json:"security"`
-	Path           string          `json:"path"`
-	VerifyCert     bool            `json:"verify_cert"`
-	Obfs           string          `json:"obfs"`
-	Header         json.RawMessage `json:"header"`
-	AllowInsecure  string          `json:"allow_insecure"`
-	Servicename    string          `json:"servicename"`
-	EnableXtls     string          `json:"enable_xtls"`
-	Flow           string          `json:"flow"`
-	EnableREALITY  bool            `json:"enable_reality"`
-	RealityOpts    *REALITYConfig  `json:"reality-opts"`
+	OffsetPortNode        string          `json:"offset_port_node"`
+	Host                  string          `json:"host"`
+	Method                string          `json:"method"`
+	ServerKey             string          `json:"server_key"`
+	TLS                   string          `json:"tls"`
+	EnableVless           string          `json:"enable_vless"`
+	Network               string          `json:"network"`
+	Security              string          `json:"security"`
+	Path                  string          `json:"path"`
+	VerifyCert            bool            `json:"verify_cert"`
+	Obfs                  string          `json:"obfs"`
+	Header                json.RawMessage `json:"header"`
+	AllowInsecure         string          `json:"allow_insecure"`
+	Servicename           string          `json:"servicename"`
+	EnableXtls            string          `json:"enable_xtls"`
+	Flow                  string          `json:"flow"`
+	EnableREALITY         bool            `json:"enable_reality"`
+	RealityOpts           *REALITYConfig  `json:"reality-opts"`
+	OffsetPortUser        string          `json:"offset_port_user"`
+	ObfsPassword          string          `json:"obfs_password"`
+	UpMbps                int             `json:"up_mbps"`
+	DownMbps              int             `json:"down_mbps"`
+	ServerName            string          `json:"server_name"`
+	Sni                   string          `json:"sni"`
+	Alpn                  []string        `json:"alpn"`
+	Fingerprint           string          `json:"fingerprint"`
+	IgnoreClientBandwidth bool            `json:"ignore_client_bandwidth"`
 }
 
 // UserResponse is the response of user

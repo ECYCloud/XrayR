@@ -27,6 +27,7 @@ import (
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/controller"
+	"github.com/ECYCloud/XrayR/service/hysteria2"
 )
 
 // Panel Structure
@@ -194,16 +195,36 @@ func (p *Panel) Start() {
 		default:
 			log.Panicf("Unsupport panel type: %s", nodeConfig.PanelType)
 		}
-		var controllerService service.Service
-		// Register controller service
+
+		// Register service for this node
 		controllerConfig := getDefaultControllerConfig()
 		if nodeConfig.ControllerConfig != nil {
 			if err := mergo.Merge(controllerConfig, nodeConfig.ControllerConfig, mergo.WithOverride); err != nil {
 				log.Panicf("Read Controller Config Failed")
 			}
 		}
-		controllerService = controller.New(server, apiClient, controllerConfig, nodeConfig.PanelType)
-		p.Service = append(p.Service, controllerService)
+
+		var svc service.Service
+		// Hysteria2 is implemented as an independent service and currently
+		// only supported for SSPanel.
+		if nodeConfig.PanelType == "SSpanel" {
+			if nodeInfo, err := apiClient.GetNodeInfo(); err == nil && nodeInfo != nil && nodeInfo.NodeType == "Hysteria2" {
+				// For Hysteria2 we don't use xray-core controller, instead we
+				// start a dedicated Hysteria2 service.
+				serviceConfig := *controllerConfig // shallow copy
+				serviceConfig.CertConfig = controllerConfig.CertConfig
+				svc = hysteria2.New(apiClient, &serviceConfig)
+			} else if err != nil {
+				log.Panicf("Get node info failed for Hysteria2 node: %s", err)
+			}
+		}
+
+		if svc == nil {
+			// Default behaviour: use the original controller service.
+			svc = controller.New(server, apiClient, controllerConfig, nodeConfig.PanelType)
+		}
+
+		p.Service = append(p.Service, svc)
 
 	}
 
