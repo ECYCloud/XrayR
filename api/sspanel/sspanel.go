@@ -835,13 +835,18 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 
 	// Attach Hysteria2-specific configuration when needed
 	if c.NodeType == "Hysteria2" {
-		up := nodeConfig.UpMbps
-		if up == 0 {
-			up = 100
+		// up_mbps / down_mbps may be provided as strings in custom_config
+		up := 100
+		if nodeConfig.UpMbps != "" {
+			if v, err := strconv.Atoi(nodeConfig.UpMbps); err == nil && v > 0 {
+				up = v
+			}
 		}
-		down := nodeConfig.DownMbps
-		if down == 0 {
-			down = 100
+		down := 100
+		if nodeConfig.DownMbps != "" {
+			if v, err := strconv.Atoi(nodeConfig.DownMbps); err == nil && v > 0 {
+				down = v
+			}
 		}
 
 		nodeInfo.Hysteria2Config = &api.Hysteria2Config{

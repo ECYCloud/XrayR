@@ -36,8 +36,8 @@ type CustomConfig struct {
 	RealityOpts           *REALITYConfig  `json:"reality-opts"`
 	OffsetPortUser        string          `json:"offset_port_user"`
 	ObfsPassword          string          `json:"obfs_password"`
-	UpMbps                int             `json:"up_mbps"`
-	DownMbps              int             `json:"down_mbps"`
+	UpMbps                string          `json:"up_mbps"`
+	DownMbps              string          `json:"down_mbps"`
 	ServerName            string          `json:"server_name"`
 	Sni                   string          `json:"sni"`
 	Alpn                  []string        `json:"alpn"`
