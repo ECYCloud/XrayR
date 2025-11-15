@@ -20,59 +20,103 @@ func (l *hyEventLogger) logger() *log.Entry {
 	return l.svc.logger
 }
 
+// userFields resolves the given Hysteria2 connection ID (which is the
+// auth string returned by the Authenticator) to a stable, non-sensitive
+// user identity such as UID / email for logging purposes.
+func (l *hyEventLogger) userFields(id string) log.Fields {
+	fields := log.Fields{}
+	if l == nil || l.svc == nil {
+		return fields
+	}
+
+	l.svc.mu.RLock()
+	defer l.svc.mu.RUnlock()
+
+	if user, ok := l.svc.users[id]; ok {
+		fields["uid"] = user.UID
+		if user.Email != "" {
+			fields["email"] = user.Email
+		}
+	}
+	return fields
+}
+
 func (l *hyEventLogger) Connect(addr net.Addr, id string, tx uint64) {
-	l.logger().WithFields(log.Fields{
+	fields := log.Fields{
 		"remote": addr.String(),
-		"id":     id,
-	}).Info("Hysteria2 client connected")
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
+	l.logger().WithFields(fields).Info("Hysteria2 client connected")
 }
 
 func (l *hyEventLogger) Disconnect(addr net.Addr, id string, err error) {
+	fields := log.Fields{
+		"remote": addr.String(),
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
 	if err != nil {
-		l.logger().WithFields(log.Fields{
-			"remote": addr.String(),
-			"id":     id,
-			"err":    err,
-		}).Warn("Hysteria2 client disconnected with error")
+		fields["err"] = err
+		l.logger().WithFields(fields).Warn("Hysteria2 client disconnected with error")
 	} else {
-		l.logger().WithFields(log.Fields{
-			"remote": addr.String(),
-			"id":     id,
-		}).Info("Hysteria2 client disconnected")
+		l.logger().WithFields(fields).Info("Hysteria2 client disconnected")
 	}
 }
 
 func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
-	l.logger().WithFields(log.Fields{
+	fields := log.Fields{
 		"remote":  addr.String(),
-		"id":      id,
 		"reqAddr": reqAddr,
-	}).Debug("Hysteria2 TCP request")
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
+	l.logger().WithFields(fields).Debug("Hysteria2 TCP request")
 }
 
 func (l *hyEventLogger) TCPError(addr net.Addr, id, reqAddr string, err error) {
-	l.logger().WithFields(log.Fields{
+	fields := log.Fields{
 		"remote":  addr.String(),
-		"id":      id,
 		"reqAddr": reqAddr,
-		"err":     err,
-	}).Warn("Hysteria2 TCP error")
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
+	if err != nil {
+		fields["err"] = err
+		l.logger().WithFields(fields).Warn("Hysteria2 TCP error")
+	} else {
+		l.logger().WithFields(fields).Debug("Hysteria2 TCP error")
+	}
 }
 
 func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, reqAddr string) {
-	l.logger().WithFields(log.Fields{
+	fields := log.Fields{
 		"remote":    addr.String(),
-		"id":        id,
 		"sessionID": sessionID,
 		"reqAddr":   reqAddr,
-	}).Debug("Hysteria2 UDP request")
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
+	l.logger().WithFields(fields).Debug("Hysteria2 UDP request")
 }
 
 func (l *hyEventLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error) {
-	l.logger().WithFields(log.Fields{
+	fields := log.Fields{
 		"remote":    addr.String(),
-		"id":        id,
 		"sessionID": sessionID,
-		"err":       err,
-	}).Warn("Hysteria2 UDP error")
+	}
+	for k, v := range l.userFields(id) {
+		fields[k] = v
+	}
+	if err != nil {
+		fields["err"] = err
+		l.logger().WithFields(fields).Warn("Hysteria2 UDP error")
+	} else {
+		l.logger().WithFields(fields).Debug("Hysteria2 UDP error")
+	}
 }
