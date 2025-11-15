@@ -220,7 +220,7 @@ require (
 	github.com/mdlayher/netlink v1.7.3-0.20250113171957-fbb4dce95f42 // indirect
 	github.com/mdlayher/sdnotify v1.0.0 // indirect
 	github.com/mdlayher/socket v0.5.1 // indirect
-	github.com/metacubex/tfo-go v0.0.0-20250921095601-b102db4216c0 // indirect
+	github.com/metacubex/tfo-go v0.0.0-20251024101424-368b42b59148 // indirect
 	github.com/metacubex/utls v1.8.3 // indirect
 	github.com/mholt/acmez/v3 v3.1.2 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.26 // indirect
