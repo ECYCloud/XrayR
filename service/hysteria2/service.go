@@ -3,6 +3,7 @@ package hysteria2
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/apernet/hysteria/core/v2/server"
@@ -111,7 +112,7 @@ func (h *Hysteria2Service) Start() error {
 		go t.Start()
 	}
 
-	h.logger.Infof("Hysteria2 node started on %s:%d", h.config.ListenIP, h.nodeInfo.Port)
+	h.logger.Infof("Hysteria2 node started on %s:%d (hysteria core %s)", h.config.ListenIP, h.nodeInfo.Port, getHysteriaCoreVersion())
 	return nil
 }
 
@@ -127,4 +128,23 @@ func (h *Hysteria2Service) Close() error {
 		return h.server.Close()
 	}
 	return nil
+}
+
+func getHysteriaCoreVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "unknown"
+	}
+	for _, dep := range info.Deps {
+		if dep.Path == "github.com/apernet/hysteria/core/v2" {
+			if dep.Version != "" {
+				return dep.Version
+			}
+			if dep.Replace != nil && dep.Replace.Version != "" {
+				return dep.Replace.Version
+			}
+			break
+		}
+	}
+	return "unknown"
 }

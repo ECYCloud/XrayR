@@ -43,6 +43,7 @@ type CustomConfig struct {
 	Alpn                  []string        `json:"alpn"`
 	Fingerprint           string          `json:"fingerprint"`
 	IgnoreClientBandwidth bool            `json:"ignore_client_bandwidth"`
+	PaddingScheme         []string        `json:"padding_scheme"`
 }
 
 // UserResponse is the response of user

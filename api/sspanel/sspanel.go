@@ -794,6 +794,10 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		// Hysteria2 uses UDP transport and always requires TLS on the server side
 		transportProtocol = "udp"
 		enableTLS = true
+	case "AnyTLS":
+		// AnyTLS is a TLS-based protocol implemented by sing-box and uses TCP transport.
+		transportProtocol = "tcp"
+		enableTLS = true
 	}
 
 	// parse reality config
@@ -855,6 +859,13 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 			UpMbps:                up,
 			DownMbps:              down,
 			IgnoreClientBandwidth: nodeConfig.IgnoreClientBandwidth,
+		}
+	}
+
+	// Attach AnyTLS-specific configuration when needed
+	if c.NodeType == "AnyTLS" {
+		nodeInfo.AnyTLSConfig = &api.AnyTLSConfig{
+			PaddingScheme: nodeConfig.PaddingScheme,
 		}
 	}
 

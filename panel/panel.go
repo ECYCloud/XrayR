@@ -26,6 +26,7 @@ import (
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
 	"github.com/ECYCloud/XrayR/service"
+	"github.com/ECYCloud/XrayR/service/anytls"
 	"github.com/ECYCloud/XrayR/service/controller"
 	"github.com/ECYCloud/XrayR/service/hysteria2"
 )
@@ -205,17 +206,30 @@ func (p *Panel) Start() {
 		}
 
 		var svc service.Service
-		// Hysteria2 is implemented as an independent service and currently
-		// only supported for SSPanel.
+		var nodeInfo *api.NodeInfo
+
+		// Hysteria2 and AnyTLS are implemented as independent services and
+		// currently only supported for SSPanel.
 		if nodeConfig.PanelType == "SSpanel" {
-			if nodeInfo, err := apiClient.GetNodeInfo(); err == nil && nodeInfo != nil && nodeInfo.NodeType == "Hysteria2" {
-				// For Hysteria2 we don't use xray-core controller, instead we
-				// start a dedicated Hysteria2 service.
-				serviceConfig := *controllerConfig // shallow copy
-				serviceConfig.CertConfig = controllerConfig.CertConfig
-				svc = hysteria2.New(apiClient, &serviceConfig)
-			} else if err != nil {
-				log.Panicf("Get node info failed for Hysteria2 node: %s", err)
+			var err error
+			nodeInfo, err = apiClient.GetNodeInfo()
+			if err != nil {
+				log.Panicf("Get node info failed for node: %s", err)
+			}
+			if nodeInfo != nil {
+				switch nodeInfo.NodeType {
+				case "Hysteria2":
+					// For Hysteria2 we don't use xray-core controller, instead we
+					// start a dedicated Hysteria2 service.
+					serviceConfig := *controllerConfig // shallow copy
+					serviceConfig.CertConfig = controllerConfig.CertConfig
+					svc = hysteria2.New(apiClient, &serviceConfig)
+				case "AnyTLS":
+					// AnyTLS uses a sing-box based independent service.
+					serviceConfig := *controllerConfig // shallow copy
+					serviceConfig.CertConfig = controllerConfig.CertConfig
+					svc = anytls.New(apiClient, &serviceConfig)
+				}
 			}
 		}
 
