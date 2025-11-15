@@ -55,16 +55,24 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 
 	newUsers := make(map[string]userRecord, len(*userInfo))
 	for _, u := range *userInfo {
-		if u.UUID == "" {
-			continue
-		}
-		newUsers[u.UUID] = userRecord{
+		// Primary auth key is UUID; fallback to Passwd for panels that
+		// use the password field for Hysteria2 authentication.
+		keys := []string{u.UUID, u.Passwd}
+		rec := userRecord{
 			UID:         u.UID,
 			Email:       u.Email,
 			DeviceLimit: u.DeviceLimit,
 		}
-		if _, ok := h.traffic[u.UUID]; !ok {
-			h.traffic[u.UUID] = &userTraffic{}
+		for _, k := range keys {
+			if k == "" {
+				continue
+			}
+			if _, ok := newUsers[k]; !ok {
+				newUsers[k] = rec
+			}
+			if _, ok := h.traffic[k]; !ok {
+				h.traffic[k] = &userTraffic{}
+			}
 		}
 	}
 
@@ -174,4 +182,3 @@ func (h *Hysteria2Service) userMonitor() error {
 
 	return nil
 }
-
