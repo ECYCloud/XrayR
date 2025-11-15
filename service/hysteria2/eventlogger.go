@@ -4,8 +4,6 @@ import (
 	"net"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/apernet/hysteria/core/v2/server"
 )
 
 // hyEventLogger implements server.EventLogger and prints useful
@@ -78,4 +76,3 @@ func (l *hyEventLogger) UDPError(addr net.Addr, id string, sessionID uint32, err
 		"err":       err,
 	}).Warn("Hysteria2 UDP error")
 }
-
