@@ -90,7 +90,7 @@ func (c *Controller) buildSSUser(userInfo *[]api.UserInfo, method string) (users
 				Level: 0,
 				Email: e,
 				Account: serial.ToTypedMessage(&shadowsocks_2022.Account{
-					Key:   userKey,
+					Key: userKey,
 				}),
 			}
 		} else {
@@ -123,7 +123,7 @@ func (c *Controller) buildSSPluginUser(userInfo *[]api.UserInfo) (users []*proto
 				Level: 0,
 				Email: e,
 				Account: serial.ToTypedMessage(&shadowsocks_2022.Account{
-					Key:   userKey,
+					Key: userKey,
 				}),
 			}
 		} else {
@@ -160,7 +160,8 @@ func cipherFromString(c string) shadowsocks.CipherType {
 }
 
 func (c *Controller) buildUserTag(user *api.UserInfo) string {
-	return fmt.Sprintf("%s|%s|%d", c.Tag, user.Email, user.UID)
+	// Format user identifier as email|uid (without node tag) to avoid duplicate tags in logs.
+	return fmt.Sprintf("%s|%d", user.Email, user.UID)
 }
 
 func (c *Controller) checkShadowsocksPassword(password string, method string) (string, error) {

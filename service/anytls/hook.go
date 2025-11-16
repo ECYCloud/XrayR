@@ -124,7 +124,7 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	// from <ip:port> accepted tcp:<dest> [<tag>] email: <tag|email|uid>
 	nodeTag := t.svc.tag
 	if ok {
-		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, userRec.Email, userRec.UID)
+		emailStr := fmt.Sprintf("%s|%d", userRec.Email, userRec.UID)
 		t.svc.logger.Infof("from %s accepted tcp:%s [%s] email: %s",
 			remote, dest, nodeTag, emailStr)
 	} else {
@@ -137,7 +137,11 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	// Audit check: if a rule hits, mark this connection as blocked and close it.
 	if ok && dest != "" && t.svc.rules != nil {
 		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
-		if t.svc.rules.Detect(t.svc.tag, dest, email, remote) {
+		srcIP := remote
+		if h, _, err := net.SplitHostPort(srcIP); err == nil {
+			srcIP = h
+		}
+		if t.svc.rules.Detect(t.svc.tag, dest, email, srcIP) {
 			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit, closing connection")
 			blocked = true
 		}
@@ -198,7 +202,7 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 
 	nodeTag := t.svc.tag
 	if ok {
-		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, userRec.Email, userRec.UID)
+		emailStr := fmt.Sprintf("%s|%d", userRec.Email, userRec.UID)
 		t.svc.logger.Infof("from %s accepted udp:%s [%s] email: %s",
 			remote, dest, nodeTag, emailStr)
 	} else {
@@ -210,7 +214,11 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 	// but we still record violations for panel-side auditing.
 	if ok && dest != "" && t.svc.rules != nil {
 		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
-		if t.svc.rules.Detect(t.svc.tag, dest, email, remote) {
+		srcIP := remote
+		if h, _, err := net.SplitHostPort(srcIP); err == nil {
+			srcIP = h
+		}
+		if t.svc.rules.Detect(t.svc.tag, dest, email, srcIP) {
 			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit on UDP")
 		}
 	}

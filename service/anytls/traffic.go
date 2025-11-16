@@ -1,6 +1,7 @@
 package anytls
 
 import (
+	"net"
 	"time"
 
 	"github.com/sagernet/sing-box/option"
@@ -118,8 +119,15 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 	if !ok {
 		return false
 	}
-	if ip == "" {
-		ip = "unknown"
+
+	host := ip
+	if host != "" {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+	}
+	if host == "" {
+		host = "unknown"
 	}
 
 	ips, ok := s.onlineIPs[uuid]
@@ -127,7 +135,7 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 		ips = make(map[string]struct{})
 		s.onlineIPs[uuid] = ips
 	}
-	if _, exists := ips[ip]; !exists {
+	if _, exists := ips[host]; !exists {
 		if user.DeviceLimit > 0 && len(ips) >= user.DeviceLimit {
 			s.logger.WithFields(log.Fields{
 				"uid":         user.UID,
@@ -137,7 +145,7 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 			}).Warn("AnyTLS user exceeded device limit")
 			return false
 		}
-		ips[ip] = struct{}{}
+		ips[host] = struct{}{}
 	}
 	return true
 }

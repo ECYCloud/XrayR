@@ -148,7 +148,7 @@ func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 	}
 
 	if ok {
-		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, user.Email, user.UID)
+		emailStr := fmt.Sprintf("%s|%d", user.Email, user.UID)
 		l.logger().Infof("from %s accepted tcp:%s [%s] email: %s",
 			remote, reqAddr, nodeTag, emailStr)
 	} else {
@@ -196,7 +196,7 @@ func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, r
 	}
 
 	if ok {
-		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, user.Email, user.UID)
+		emailStr := fmt.Sprintf("%s|%d", user.Email, user.UID)
 		l.logger().Infof("from %s accepted udp:%s [%s] email: %s",
 			remote, reqAddr, nodeTag, emailStr)
 	} else {

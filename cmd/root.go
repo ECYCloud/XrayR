@@ -32,6 +32,12 @@ var (
 )
 
 func init() {
+	// Configure global logger time format.
+	log.SetFormatter(&log.TextFormatter{
+		FullTimestamp:   true,
+		TimestampFormat: "2006/01/02 15:04:05.000000",
+	})
+
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "Config file for XrayR.")
 }
 

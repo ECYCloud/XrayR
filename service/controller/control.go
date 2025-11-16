@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/protocol"
@@ -56,11 +55,8 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 			destStr = ob.Target.String()
 		}
 
-		// Determine node tag dynamically from email (format: tag|email|uid)
+		// Use the wrapper's tag as node identifier; email is formatted as email|uid.
 		nodeTag := w.tag
-		if idx := strings.IndexByte(email, '|'); idx > 0 {
-			nodeTag = email[:idx]
-		}
 
 		// Audit check: reject immediately on hit
 		if w.ruleMgr != nil && email != "" && destStr != "" {

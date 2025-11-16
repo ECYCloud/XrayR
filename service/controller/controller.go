@@ -304,7 +304,7 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 			if len(deleted) > 0 {
 				deletedEmail := make([]string, len(deleted))
 				for i, u := range deleted {
-					deletedEmail[i] = fmt.Sprintf("%s|%s|%d", c.Tag, u.Email, u.UID)
+					deletedEmail[i] = c.buildUserTag(&u)
 				}
 				err := c.removeUsers(deletedEmail, c.Tag)
 				if err != nil {
