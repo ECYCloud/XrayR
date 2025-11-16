@@ -7,6 +7,7 @@ import (
 	"github.com/apernet/hysteria/core/v2/server"
 	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common/task"
+	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/rule"
@@ -29,18 +30,20 @@ type Hysteria2Service struct {
 
 	rules *rule.Manager
 
-	mu         sync.RWMutex
-	users      map[string]userRecord          // uuid -> user
-	traffic    map[string]*userTraffic        // uuid -> counters
-	overLimit  map[string]bool                // uuid -> over device limit
-	onlineIPs  map[string]map[string]struct{} // uuid -> set of IPs
-	blockedIDs map[string]bool                // connection id -> blocked by audit
+	mu           sync.RWMutex
+	users        map[string]userRecord          // uuid -> user
+	traffic      map[string]*userTraffic        // uuid -> counters
+	overLimit    map[string]bool                // uuid -> over device limit
+	onlineIPs    map[string]map[string]struct{} // uuid -> set of IPs
+	blockedIDs   map[string]bool                // connection id -> blocked by audit
+	rateLimiters map[string]*rate.Limiter       // uuid -> per-user speed limiter
 }
 
 type userRecord struct {
 	UID         int
 	Email       string
 	DeviceLimit int
+	SpeedLimit  uint64
 }
 
 type userTraffic struct {

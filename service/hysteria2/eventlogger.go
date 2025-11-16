@@ -90,12 +90,35 @@ func (l *hyEventLogger) Connect(addr net.Addr, id string, tx uint64) {
 }
 
 func (l *hyEventLogger) Disconnect(addr net.Addr, id string, err error) {
+	remote := ""
+	host := ""
+	if addr != nil {
+		remote = addr.String()
+		host = remote
+		if h, _, splitErr := net.SplitHostPort(remote); splitErr == nil {
+			host = h
+		}
+	}
+
 	fields := log.Fields{
-		"remote": addr.String(),
+		"remote": remote,
 	}
 	for k, v := range l.userFields(id) {
 		fields[k] = v
 	}
+
+	// Remove this IP from online IP tracking.
+	if l != nil && l.svc != nil && id != "" && host != "" {
+		l.svc.mu.Lock()
+		if ipSet, ok := l.svc.onlineIPs[id]; ok {
+			delete(ipSet, host)
+			if len(ipSet) == 0 {
+				delete(l.svc.onlineIPs, id)
+			}
+		}
+		l.svc.mu.Unlock()
+	}
+
 	if err != nil {
 		fields["err"] = err
 		l.logger().WithFields(fields).Warn("Hysteria2 client disconnected with error")
@@ -105,14 +128,34 @@ func (l *hyEventLogger) Disconnect(addr net.Addr, id string, err error) {
 }
 
 func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
-	fields := log.Fields{
-		"remote":  addr.String(),
-		"reqAddr": reqAddr,
+	remote := ""
+	if addr != nil {
+		remote = addr.String()
 	}
-	for k, v := range l.userFields(id) {
-		fields[k] = v
+
+	var (
+		user    userRecord
+		ok      bool
+		nodeTag string
+	)
+
+	if l != nil && l.svc != nil {
+		nodeTag = l.svc.tag
+
+		l.svc.mu.RLock()
+		user, ok = l.svc.users[id]
+		l.svc.mu.RUnlock()
 	}
-	l.logger().WithFields(fields).Info("Hysteria2 TCP request")
+
+	if ok {
+		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, user.Email, user.UID)
+		l.logger().Infof("from %s accepted tcp:%s [%s] email: %s",
+			remote, reqAddr, nodeTag, emailStr)
+	} else {
+		l.logger().Infof("from %s accepted tcp:%s [%s]",
+			remote, reqAddr, nodeTag)
+	}
+
 	l.auditRequest(addr, id, reqAddr)
 }
 
@@ -133,15 +176,34 @@ func (l *hyEventLogger) TCPError(addr net.Addr, id, reqAddr string, err error) {
 }
 
 func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, reqAddr string) {
-	fields := log.Fields{
-		"remote":    addr.String(),
-		"sessionID": sessionID,
-		"reqAddr":   reqAddr,
+	remote := ""
+	if addr != nil {
+		remote = addr.String()
 	}
-	for k, v := range l.userFields(id) {
-		fields[k] = v
+
+	var (
+		user    userRecord
+		ok      bool
+		nodeTag string
+	)
+
+	if l != nil && l.svc != nil {
+		nodeTag = l.svc.tag
+
+		l.svc.mu.RLock()
+		user, ok = l.svc.users[id]
+		l.svc.mu.RUnlock()
 	}
-	l.logger().WithFields(fields).Info("Hysteria2 UDP request")
+
+	if ok {
+		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, user.Email, user.UID)
+		l.logger().Infof("from %s accepted udp:%s [%s] email: %s",
+			remote, reqAddr, nodeTag, emailStr)
+	} else {
+		l.logger().Infof("from %s accepted udp:%s [%s]",
+			remote, reqAddr, nodeTag)
+	}
+
 	l.auditRequest(addr, id, reqAddr)
 }
 

@@ -5,6 +5,7 @@ import (
 
 	"github.com/sagernet/sing-box/option"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
@@ -20,6 +21,12 @@ func (s *AnyTLSService) syncUsers(userInfo *[]api.UserInfo) {
 
 	newUsers := make(map[string]userRecord, len(*userInfo))
 	authUsers := make([]option.AnyTLSUser, 0, len(*userInfo)*2)
+	newRateLimiters := make(map[string]*rate.Limiter)
+
+	var nodeLimit uint64
+	if s.nodeInfo != nil {
+		nodeLimit = s.nodeInfo.SpeedLimit
+	}
 
 	for _, u := range *userInfo {
 		keys := []string{u.UUID, u.Passwd}
@@ -27,13 +34,38 @@ func (s *AnyTLSService) syncUsers(userInfo *[]api.UserInfo) {
 			UID:         u.UID,
 			Email:       u.Email,
 			DeviceLimit: u.DeviceLimit,
+			SpeedLimit:  u.SpeedLimit,
 		}
+
+		limit := determineRate(nodeLimit, u.SpeedLimit)
+		var limiter *rate.Limiter
+		if limit > 0 {
+			// Try to reuse an existing limiter if present.
+			for _, k := range keys {
+				if k == "" {
+					continue
+				}
+				if old, ok := s.rateLimiters[k]; ok && old != nil {
+					old.SetLimit(rate.Limit(limit))
+					old.SetBurst(int(limit))
+					limiter = old
+					break
+				}
+			}
+			if limiter == nil {
+				limiter = rate.NewLimiter(rate.Limit(limit), int(limit))
+			}
+		}
+
 		for _, k := range keys {
 			if k == "" {
 				continue
 			}
 			if _, ok := newUsers[k]; !ok {
 				newUsers[k] = rec
+			}
+			if limiter != nil {
+				newRateLimiters[k] = limiter
 			}
 			if _, ok := s.traffic[k]; !ok {
 				s.traffic[k] = &userTraffic{}
@@ -56,6 +88,7 @@ func (s *AnyTLSService) syncUsers(userInfo *[]api.UserInfo) {
 
 	s.users = newUsers
 	s.authUsers = authUsers
+	s.rateLimiters = newRateLimiters
 
 	for uuid := range s.onlineIPs {
 		if _, ok := newUsers[uuid]; !ok {
@@ -111,6 +144,7 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 
 func (s *AnyTLSService) collectUsage() ([]api.UserTraffic, []api.OnlineUser) {
 	s.mu.Lock()
+
 	defer s.mu.Unlock()
 
 	var uts []api.UserTraffic
@@ -141,7 +175,6 @@ func (s *AnyTLSService) collectUsage() ([]api.UserTraffic, []api.OnlineUser) {
 		for ip := range ipSet {
 			online = append(online, api.OnlineUser{UID: user.UID, IP: ip})
 		}
-		delete(s.onlineIPs, uuid)
 	}
 
 	return uts, online
@@ -214,4 +247,22 @@ func (s *AnyTLSService) userMonitor() error {
 	}
 
 	return nil
+}
+
+func determineRate(nodeLimit, userLimit uint64) (limit uint64) {
+	if nodeLimit == 0 || userLimit == 0 {
+		if nodeLimit > userLimit {
+			return nodeLimit
+		} else if nodeLimit < userLimit {
+			return userLimit
+		}
+		return 0
+	}
+
+	if nodeLimit > userLimit {
+		return userLimit
+	} else if nodeLimit < userLimit {
+		return nodeLimit
+	}
+	return nodeLimit
 }

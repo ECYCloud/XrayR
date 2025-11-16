@@ -9,6 +9,7 @@ import (
 	"github.com/sagernet/sing-box/adapter"
 	N "github.com/sagernet/sing/common/network"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/time/rate"
 )
 
 type connCounter struct {
@@ -16,6 +17,7 @@ type connCounter struct {
 	svc     *AnyTLSService
 	user    string
 	blocked bool
+	limiter *rate.Limiter
 }
 
 func (c *connCounter) Read(p []byte) (int, error) {
@@ -25,6 +27,9 @@ func (c *connCounter) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, int64(n), 0)
+		if c.limiter != nil {
+			_ = c.limiter.WaitN(context.Background(), n)
+		}
 	}
 	return n, err
 }
@@ -36,8 +41,36 @@ func (c *connCounter) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, 0, int64(n))
+		if c.limiter != nil {
+			_ = c.limiter.WaitN(context.Background(), n)
+		}
 	}
 	return n, err
+}
+
+func (c *connCounter) Close() error {
+	if c.svc != nil && c.user != "" {
+		remote := ""
+		if addr := c.Conn.RemoteAddr(); addr != nil {
+			remote = addr.String()
+		}
+		host := remote
+		if host != "" {
+			if h, _, err := net.SplitHostPort(host); err == nil {
+				host = h
+			}
+		}
+
+		c.svc.mu.Lock()
+		if ips, ok := c.svc.onlineIPs[c.user]; ok && host != "" {
+			delete(ips, host)
+			if len(ips) == 0 {
+				delete(c.svc.onlineIPs, c.user)
+			}
+		}
+		c.svc.mu.Unlock()
+	}
+	return c.Conn.Close()
 }
 
 type anyTLSTracker struct {
@@ -86,7 +119,18 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 			fields["email"] = userRec.Email
 		}
 	}
-	t.svc.logger.WithFields(fields).Info("AnyTLS TCP request")
+
+	// Match XrayR controller-style access log format:
+	// from <ip:port> accepted tcp:<dest> [<tag>] email: <tag|email|uid>
+	nodeTag := t.svc.tag
+	if ok {
+		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, userRec.Email, userRec.UID)
+		t.svc.logger.Infof("from %s accepted tcp:%s [%s] email: %s",
+			remote, dest, nodeTag, emailStr)
+	} else {
+		t.svc.logger.Infof("from %s accepted tcp:%s [%s]",
+			remote, dest, nodeTag)
+	}
 
 	blocked := false
 
@@ -151,7 +195,16 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 			fields["email"] = userRec.Email
 		}
 	}
-	t.svc.logger.WithFields(fields).Info("AnyTLS UDP packet")
+
+	nodeTag := t.svc.tag
+	if ok {
+		emailStr := fmt.Sprintf("%s|%s|%d", nodeTag, userRec.Email, userRec.UID)
+		t.svc.logger.Infof("from %s accepted udp:%s [%s] email: %s",
+			remote, dest, nodeTag, emailStr)
+	} else {
+		t.svc.logger.Infof("from %s accepted udp:%s [%s]",
+			remote, dest, nodeTag)
+	}
 
 	// Audit check for UDP. We cannot directly close the logical session here,
 	// but we still record violations for panel-side auditing.

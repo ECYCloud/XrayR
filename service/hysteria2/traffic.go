@@ -1,9 +1,11 @@
 package hysteria2
 
 import (
+	"context"
 	"time"
 
 	"github.com/apernet/hysteria/core/v2/server"
+	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
@@ -20,8 +22,9 @@ func (t *hyTrafficLogger) LogTraffic(id string, tx, rx uint64) bool {
 		return true
 	}
 
+	var limiter *rate.Limiter
+
 	t.svc.mu.Lock()
-	defer t.svc.mu.Unlock()
 
 	// If this connection has been marked as violating an audit rule, signal
 	// the core to disconnect it by returning false.
@@ -31,11 +34,13 @@ func (t *hyTrafficLogger) LogTraffic(id string, tx, rx uint64) bool {
 			if t.svc.logger != nil {
 				t.svc.logger.WithField("id", id).Warn("Hysteria2 closing connection due to audit rule")
 			}
+			t.svc.mu.Unlock()
 			return false
 		}
 	}
 
 	if _, ok := t.svc.users[id]; !ok {
+		t.svc.mu.Unlock()
 		return true
 	}
 	counter, ok := t.svc.traffic[id]
@@ -45,6 +50,20 @@ func (t *hyTrafficLogger) LogTraffic(id string, tx, rx uint64) bool {
 	}
 	counter.Upload += int64(tx)
 	counter.Download += int64(rx)
+
+	if t.svc.rateLimiters != nil {
+		limiter = t.svc.rateLimiters[id]
+	}
+
+	t.svc.mu.Unlock()
+
+	if limiter != nil {
+		total := int(tx + rx)
+		if total > 0 {
+			_ = limiter.WaitN(context.Background(), total)
+		}
+	}
+
 	return true
 }
 
@@ -66,6 +85,13 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 	defer h.mu.Unlock()
 
 	newUsers := make(map[string]userRecord, len(*userInfo))
+	newRateLimiters := make(map[string]*rate.Limiter)
+
+	var nodeLimit uint64
+	if h.nodeInfo != nil {
+		nodeLimit = h.nodeInfo.SpeedLimit
+	}
+
 	for _, u := range *userInfo {
 		// Primary auth key is UUID; fallback to Passwd for panels that
 		// use the password field for Hysteria2 authentication.
@@ -74,13 +100,38 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 			UID:         u.UID,
 			Email:       u.Email,
 			DeviceLimit: u.DeviceLimit,
+			SpeedLimit:  u.SpeedLimit,
 		}
+
+		limit := determineRate(nodeLimit, u.SpeedLimit)
+		var limiter *rate.Limiter
+		if limit > 0 {
+			// Try to reuse an existing limiter if present.
+			for _, k := range keys {
+				if k == "" {
+					continue
+				}
+				if old, ok := h.rateLimiters[k]; ok && old != nil {
+					old.SetLimit(rate.Limit(limit))
+					old.SetBurst(int(limit))
+					limiter = old
+					break
+				}
+			}
+			if limiter == nil {
+				limiter = rate.NewLimiter(rate.Limit(limit), int(limit))
+			}
+		}
+
 		for _, k := range keys {
 			if k == "" {
 				continue
 			}
 			if _, ok := newUsers[k]; !ok {
 				newUsers[k] = rec
+			}
+			if limiter != nil {
+				newRateLimiters[k] = limiter
 			}
 			if _, ok := h.traffic[k]; !ok {
 				h.traffic[k] = &userTraffic{}
@@ -89,6 +140,7 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 	}
 
 	h.users = newUsers
+	h.rateLimiters = newRateLimiters
 
 	// Clean online IP records for removed users
 	for uuid := range h.onlineIPs {
@@ -96,6 +148,24 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 			delete(h.onlineIPs, uuid)
 		}
 	}
+}
+
+func determineRate(nodeLimit, userLimit uint64) (limit uint64) {
+	if nodeLimit == 0 || userLimit == 0 {
+		if nodeLimit > userLimit {
+			return nodeLimit
+		} else if nodeLimit < userLimit {
+			return userLimit
+		}
+		return 0
+	}
+
+	if nodeLimit > userLimit {
+		return userLimit
+	} else if nodeLimit < userLimit {
+		return nodeLimit
+	}
+	return nodeLimit
 }
 
 // collectUsage builds traffic and online user reports and resets the
@@ -133,8 +203,6 @@ func (h *Hysteria2Service) collectUsage() ([]api.UserTraffic, []api.OnlineUser) 
 		for ip := range ipSet {
 			onlineUsers = append(onlineUsers, api.OnlineUser{UID: user.UID, IP: ip})
 		}
-		// reset for next round
-		delete(h.onlineIPs, uuid)
 	}
 
 	return userTraffic, onlineUsers

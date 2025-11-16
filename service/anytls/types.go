@@ -8,6 +8,7 @@ import (
 	"github.com/sagernet/sing-box/option"
 	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common/task"
+	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/rule"
@@ -31,17 +32,19 @@ type AnyTLSService struct {
 
 	rules *rule.Manager
 
-	mu        sync.RWMutex
-	users     map[string]userRecord          // authKey -> user
-	traffic   map[string]*userTraffic        // authKey -> counters
-	onlineIPs map[string]map[string]struct{} // authKey -> set of IPs
-	authUsers []option.AnyTLSUser            // users for sing-anytls authentication
+	mu           sync.RWMutex
+	users        map[string]userRecord          // authKey -> user
+	traffic      map[string]*userTraffic        // authKey -> counters
+	onlineIPs    map[string]map[string]struct{} // authKey -> set of IPs
+	authUsers    []option.AnyTLSUser            // users for sing-anytls authentication
+	rateLimiters map[string]*rate.Limiter       // authKey -> per-user speed limiter
 }
 
 type userRecord struct {
 	UID         int
 	Email       string
 	DeviceLimit int
+	SpeedLimit  uint64
 }
 
 type userTraffic struct {

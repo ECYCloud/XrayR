@@ -69,10 +69,6 @@
 wget -N https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/install.sh && bash install.sh
 ```
 
-### استقرار نرم افزار با استفاده از Docker
-
-[آموزش استقرار داکر](https://xrayr-project.github.io/XrayR-doc/xrayr-xia-zai-he-an-zhuang/install/docker)
-
 ### نصب دستی
 
 [آموزش نصب دستی](https://xrayr-project.github.io/XrayR-doc/xrayr-xia-zai-he-an-zhuang/install/manual)
