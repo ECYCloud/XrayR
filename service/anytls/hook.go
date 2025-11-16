@@ -3,6 +3,7 @@ package anytls
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
@@ -12,11 +13,15 @@ import (
 
 type connCounter struct {
 	net.Conn
-	svc  *AnyTLSService
-	user string
+	svc     *AnyTLSService
+	user    string
+	blocked bool
 }
 
 func (c *connCounter) Read(p []byte) (int, error) {
+	if c.blocked {
+		return 0, io.EOF
+	}
 	n, err := c.Conn.Read(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, int64(n), 0)
@@ -25,6 +30,9 @@ func (c *connCounter) Read(p []byte) (int, error) {
 }
 
 func (c *connCounter) Write(p []byte) (int, error) {
+	if c.blocked {
+		return 0, io.EOF
+	}
 	n, err := c.Conn.Write(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, 0, int64(n))
@@ -80,19 +88,26 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	}
 	t.svc.logger.WithFields(fields).Info("AnyTLS TCP request")
 
-	// Audit check: if a rule hits, close the connection immediately.
+	blocked := false
+
+	// Audit check: if a rule hits, mark this connection as blocked and close it.
 	if ok && dest != "" && t.svc.rules != nil {
 		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
 		if t.svc.rules.Detect(t.svc.tag, dest, email, remote) {
 			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit, closing connection")
-			_ = conn.Close()
-			return conn
+			blocked = true
 		}
 	}
 
-	if !t.svc.allowConnection(m.User, remote) {
+	// Device limit check (only if not already blocked by audit).
+	if !blocked && !t.svc.allowConnection(m.User, remote) {
+		// allowConnection already logs a warning when device limit is exceeded.
+		blocked = true
+	}
+
+	if blocked {
 		_ = conn.Close()
-		return conn
+		return &connCounter{Conn: conn, svc: t.svc, user: m.User, blocked: true}
 	}
 
 	return &connCounter{Conn: conn, svc: t.svc, user: m.User}
