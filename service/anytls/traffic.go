@@ -3,6 +3,7 @@ package anytls
 import (
 	"time"
 
+	"github.com/sagernet/sing-box/option"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/ECYCloud/XrayR/api"
@@ -18,6 +19,8 @@ func (s *AnyTLSService) syncUsers(userInfo *[]api.UserInfo) {
 	defer s.mu.Unlock()
 
 	newUsers := make(map[string]userRecord, len(*userInfo))
+	authUsers := make([]option.AnyTLSUser, 0, len(*userInfo)*2)
+
 	for _, u := range *userInfo {
 		keys := []string{u.UUID, u.Passwd}
 		rec := userRecord{
@@ -36,9 +39,23 @@ func (s *AnyTLSService) syncUsers(userInfo *[]api.UserInfo) {
 				s.traffic[k] = &userTraffic{}
 			}
 		}
+
+		if u.UUID != "" {
+			authUsers = append(authUsers, option.AnyTLSUser{
+				Name:     u.UUID,
+				Password: u.UUID,
+			})
+		}
+		if u.Passwd != "" && u.Passwd != u.UUID {
+			authUsers = append(authUsers, option.AnyTLSUser{
+				Name:     u.Passwd,
+				Password: u.Passwd,
+			})
+		}
 	}
 
 	s.users = newUsers
+	s.authUsers = authUsers
 
 	for uuid := range s.onlineIPs {
 		if _, ok := newUsers[uuid]; !ok {
@@ -172,4 +189,3 @@ func (s *AnyTLSService) userMonitor() error {
 
 	return nil
 }
-

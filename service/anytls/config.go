@@ -58,8 +58,14 @@ func (s *AnyTLSService) buildSingBox() (*box.Box, string, error) {
 		padding = s.nodeInfo.AnyTLSConfig.PaddingScheme
 	}
 
+	s.mu.RLock()
+	users := make([]option.AnyTLSUser, len(s.authUsers))
+	copy(users, s.authUsers)
+	s.mu.RUnlock()
+
 	inOpts := &option.AnyTLSInboundOptions{
 		ListenOptions: listen,
+		Users:         users,
 		PaddingScheme: padding,
 		InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{
 			TLS: tlsOpt,
@@ -118,4 +124,3 @@ func getOrIssueCert(certConfig *mylego.CertConfig) (string, string, error) {
 		return "", "", fmt.Errorf("unsupported certmode: %s", certConfig.CertMode)
 	}
 }
-

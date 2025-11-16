@@ -5,6 +5,7 @@ import (
 	"time"
 
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/option"
 	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common/task"
 
@@ -31,6 +32,7 @@ type AnyTLSService struct {
 	users     map[string]userRecord          // authKey -> user
 	traffic   map[string]*userTraffic        // authKey -> counters
 	onlineIPs map[string]map[string]struct{} // authKey -> set of IPs
+	authUsers []option.AnyTLSUser            // users for sing-anytls authentication
 }
 
 type userRecord struct {
@@ -48,4 +50,3 @@ type periodicTask struct {
 	tag string
 	*task.Periodic
 }
-
