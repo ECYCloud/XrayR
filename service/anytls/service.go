@@ -10,6 +10,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/controller"
 )
@@ -26,6 +27,7 @@ func New(apiClient api.API, cfg *controller.Config) *AnyTLSService {
 		apiClient: apiClient,
 		config:    cfg,
 		logger:    logger,
+		rules:     rule.New(),
 		users:     make(map[string]userRecord),
 		traffic:   make(map[string]*userTraffic),
 		onlineIPs: make(map[string]map[string]struct{}),
@@ -62,6 +64,17 @@ func (s *AnyTLSService) Start() error {
 		return err
 	}
 	s.syncUsers(userInfo)
+
+	// Initial rule list.
+	if !s.config.DisableGetRule && s.rules != nil {
+		if ruleList, err := s.apiClient.GetNodeRule(); err != nil {
+			s.logger.Printf("Get rule list filed: %s", err)
+		} else if len(*ruleList) > 0 {
+			if err := s.rules.UpdateRule(s.tag, *ruleList); err != nil {
+				s.logger.Print(err)
+			}
+		}
+	}
 
 	boxInstance, _, err := s.buildSingBox()
 	if err != nil {

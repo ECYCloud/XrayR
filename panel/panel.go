@@ -16,13 +16,7 @@ import (
 	"github.com/xtls/xray-core/infra/conf"
 
 	"github.com/ECYCloud/XrayR/api"
-	"github.com/ECYCloud/XrayR/api/bunpanel"
-	"github.com/ECYCloud/XrayR/api/gov2panel"
-	"github.com/ECYCloud/XrayR/api/newV2board"
-	"github.com/ECYCloud/XrayR/api/pmpanel"
-	"github.com/ECYCloud/XrayR/api/proxypanel"
 	"github.com/ECYCloud/XrayR/api/sspanel"
-	"github.com/ECYCloud/XrayR/api/v2raysocks"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
 	"github.com/ECYCloud/XrayR/service"
@@ -179,20 +173,8 @@ func (p *Panel) Start() {
 	for _, nodeConfig := range p.panelConfig.NodesConfig {
 		var apiClient api.API
 		switch nodeConfig.PanelType {
-		case "SSpanel":
+		case "SSPanel":
 			apiClient = sspanel.New(nodeConfig.ApiConfig)
-		case "NewV2board", "V2board":
-			apiClient = newV2board.New(nodeConfig.ApiConfig)
-		case "PMpanel":
-			apiClient = pmpanel.New(nodeConfig.ApiConfig)
-		case "Proxypanel":
-			apiClient = proxypanel.New(nodeConfig.ApiConfig)
-		case "V2RaySocks":
-			apiClient = v2raysocks.New(nodeConfig.ApiConfig)
-		case "GoV2Panel":
-			apiClient = gov2panel.New(nodeConfig.ApiConfig)
-		case "BunPanel":
-			apiClient = bunpanel.New(nodeConfig.ApiConfig)
 		default:
 			log.Panicf("Unsupport panel type: %s", nodeConfig.PanelType)
 		}
@@ -210,7 +192,7 @@ func (p *Panel) Start() {
 
 		// Hysteria2 and AnyTLS are implemented as independent services and
 		// currently only supported for SSPanel.
-		if nodeConfig.PanelType == "SSpanel" {
+		if nodeConfig.PanelType == "SSPanel" {
 			var err error
 			nodeInfo, err = apiClient.GetNodeInfo()
 			if err != nil {

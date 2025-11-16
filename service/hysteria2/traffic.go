@@ -23,6 +23,18 @@ func (t *hyTrafficLogger) LogTraffic(id string, tx, rx uint64) bool {
 	t.svc.mu.Lock()
 	defer t.svc.mu.Unlock()
 
+	// If this connection has been marked as violating an audit rule, signal
+	// the core to disconnect it by returning false.
+	if t.svc.blockedIDs != nil {
+		if blocked := t.svc.blockedIDs[id]; blocked {
+			delete(t.svc.blockedIDs, id)
+			if t.svc.logger != nil {
+				t.svc.logger.WithField("id", id).Warn("Hysteria2 closing connection due to audit rule")
+			}
+			return false
+		}
+	}
+
 	if _, ok := t.svc.users[id]; !ok {
 		return true
 	}
@@ -163,6 +175,19 @@ func (h *Hysteria2Service) userMonitor() error {
 		h.syncUsers(newUserInfo)
 	}
 
+	// Check Rule
+	if !h.config.DisableGetRule && h.rules != nil {
+		if ruleList, err := h.apiClient.GetNodeRule(); err != nil {
+			if err.Error() != api.RuleNotModified {
+				h.logger.Printf("Get rule list filed: %s", err)
+			}
+		} else if len(*ruleList) > 0 {
+			if err := h.rules.UpdateRule(h.tag, *ruleList); err != nil {
+				h.logger.Print(err)
+			}
+		}
+	}
+
 	// Collect traffic & online users
 	userTraffic, onlineUsers := h.collectUsage()
 	if len(userTraffic) > 0 {
@@ -177,6 +202,19 @@ func (h *Hysteria2Service) userMonitor() error {
 	if len(onlineUsers) > 0 {
 		if err = h.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
 			h.logger.Print(err)
+		}
+	}
+
+	// Report Illegal user
+	if h.rules != nil {
+		if detectResult, err := h.rules.GetDetectResult(h.tag); err != nil {
+			h.logger.Print(err)
+		} else if len(*detectResult) > 0 {
+			if err = h.apiClient.ReportIllegal(detectResult); err != nil {
+				h.logger.Print(err)
+			} else {
+				h.logger.Printf("Report %d illegal behaviors", len(*detectResult))
+			}
 		}
 	}
 

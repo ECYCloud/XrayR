@@ -10,6 +10,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service/controller"
 )
 
@@ -27,6 +28,8 @@ type AnyTLSService struct {
 	startAt time.Time
 	tasks   []periodicTask
 	logger  *log.Entry
+
+	rules *rule.Manager
 
 	mu        sync.RWMutex
 	users     map[string]userRecord          // authKey -> user

@@ -9,6 +9,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service/controller"
 )
 
@@ -26,11 +27,14 @@ type Hysteria2Service struct {
 	tasks   []periodicTask
 	logger  *log.Entry
 
-	mu        sync.RWMutex
-	users     map[string]userRecord          // uuid -> user
-	traffic   map[string]*userTraffic        // uuid -> counters
-	overLimit map[string]bool                // uuid -> over device limit
-	onlineIPs map[string]map[string]struct{} // uuid -> set of IPs
+	rules *rule.Manager
+
+	mu         sync.RWMutex
+	users      map[string]userRecord          // uuid -> user
+	traffic    map[string]*userTraffic        // uuid -> counters
+	overLimit  map[string]bool                // uuid -> over device limit
+	onlineIPs  map[string]map[string]struct{} // uuid -> set of IPs
+	blockedIDs map[string]bool                // connection id -> blocked by audit
 }
 
 type userRecord struct {
@@ -48,4 +52,3 @@ type periodicTask struct {
 	tag string
 	*task.Periodic
 }
-

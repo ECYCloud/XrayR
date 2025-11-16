@@ -1,6 +1,7 @@
 package hysteria2
 
 import (
+	"fmt"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -41,6 +42,43 @@ func (l *hyEventLogger) userFields(id string) log.Fields {
 	return fields
 }
 
+func (l *hyEventLogger) auditRequest(addr net.Addr, id, reqAddr string) {
+	if l == nil || l.svc == nil || l.svc.rules == nil {
+		return
+	}
+
+	host := addr.String()
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	l.svc.mu.RLock()
+	user, ok := l.svc.users[id]
+	l.svc.mu.RUnlock()
+	if !ok || reqAddr == "" {
+		return
+	}
+
+	email := fmt.Sprintf("%s|%s|%d", l.svc.tag, user.Email, user.UID)
+	if l.svc.rules.Detect(l.svc.tag, reqAddr, email, host) {
+		// Mark this connection ID as blocked. The TrafficLogger will see this
+		// flag and return false on the next traffic callback, which instructs
+		// the Hysteria2 core to disconnect the client immediately.
+		if l.svc.blockedIDs != nil {
+			l.svc.mu.Lock()
+			l.svc.blockedIDs[id] = true
+			l.svc.mu.Unlock()
+		}
+
+		l.logger().WithFields(log.Fields{
+			"remote":  host,
+			"reqAddr": reqAddr,
+			"uid":     user.UID,
+			"email":   user.Email,
+		}).Warn("Hysteria2 audit rule hit, scheduling disconnect")
+	}
+}
+
 func (l *hyEventLogger) Connect(addr net.Addr, id string, tx uint64) {
 	fields := log.Fields{
 		"remote": addr.String(),
@@ -74,7 +112,8 @@ func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 	for k, v := range l.userFields(id) {
 		fields[k] = v
 	}
-	l.logger().WithFields(fields).Debug("Hysteria2 TCP request")
+	l.logger().WithFields(fields).Info("Hysteria2 TCP request")
+	l.auditRequest(addr, id, reqAddr)
 }
 
 func (l *hyEventLogger) TCPError(addr net.Addr, id, reqAddr string, err error) {
@@ -102,7 +141,8 @@ func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, r
 	for k, v := range l.userFields(id) {
 		fields[k] = v
 	}
-	l.logger().WithFields(fields).Debug("Hysteria2 UDP request")
+	l.logger().WithFields(fields).Info("Hysteria2 UDP request")
+	l.auditRequest(addr, id, reqAddr)
 }
 
 func (l *hyEventLogger) UDPError(addr net.Addr, id string, sessionID uint32, err error) {

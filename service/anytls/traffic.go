@@ -175,6 +175,19 @@ func (s *AnyTLSService) userMonitor() error {
 		s.syncUsers(newUserInfo)
 	}
 
+	// Check Rule
+	if !s.config.DisableGetRule && s.rules != nil {
+		if ruleList, err := s.apiClient.GetNodeRule(); err != nil {
+			if err.Error() != api.RuleNotModified {
+				s.logger.Printf("Get rule list filed: %s", err)
+			}
+		} else if len(*ruleList) > 0 {
+			if err := s.rules.UpdateRule(s.tag, *ruleList); err != nil {
+				s.logger.Print(err)
+			}
+		}
+	}
+
 	userTraffic, onlineUsers := s.collectUsage()
 	if len(userTraffic) > 0 && !s.config.DisableUploadTraffic {
 		if err = s.apiClient.ReportUserTraffic(&userTraffic); err != nil {
@@ -184,6 +197,19 @@ func (s *AnyTLSService) userMonitor() error {
 	if len(onlineUsers) > 0 {
 		if err = s.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
 			s.logger.Print(err)
+		}
+	}
+
+	// Report Illegal user
+	if s.rules != nil {
+		if detectResult, err := s.rules.GetDetectResult(s.tag); err != nil {
+			s.logger.Print(err)
+		} else if len(*detectResult) > 0 {
+			if err = s.apiClient.ReportIllegal(detectResult); err != nil {
+				s.logger.Print(err)
+			} else {
+				s.logger.Printf("Report %d illegal behaviors", len(*detectResult))
+			}
 		}
 	}
 

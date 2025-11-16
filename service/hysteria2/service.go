@@ -11,6 +11,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/controller"
 )
@@ -25,13 +26,15 @@ func New(apiClient api.API, cfg *controller.Config) *Hysteria2Service {
 		"ID":   apiClient.Describe().NodeID,
 	})
 	return &Hysteria2Service{
-		apiClient: apiClient,
-		config:    cfg,
-		logger:    logger,
-		users:     make(map[string]userRecord),
-		traffic:   make(map[string]*userTraffic),
-		overLimit: make(map[string]bool),
-		onlineIPs: make(map[string]map[string]struct{}),
+		apiClient:  apiClient,
+		config:     cfg,
+		logger:     logger,
+		rules:      rule.New(),
+		users:      make(map[string]userRecord),
+		traffic:    make(map[string]*userTraffic),
+		overLimit:  make(map[string]bool),
+		onlineIPs:  make(map[string]map[string]struct{}),
+		blockedIDs: make(map[string]bool),
 	}
 }
 
@@ -67,6 +70,17 @@ func (h *Hysteria2Service) Start() error {
 		return err
 	}
 	h.syncUsers(userInfo)
+
+	// Initial rule list.
+	if !h.config.DisableGetRule && h.rules != nil {
+		if ruleList, err := h.apiClient.GetNodeRule(); err != nil {
+			h.logger.Printf("Get rule list filed: %s", err)
+		} else if len(*ruleList) > 0 {
+			if err := h.rules.UpdateRule(h.tag, *ruleList); err != nil {
+				h.logger.Print(err)
+			}
+		}
+	}
 
 	// Build Hysteria2 server.
 	cfg, err := h.buildServerConfig()

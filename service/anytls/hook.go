@@ -2,10 +2,12 @@ package anytls
 
 import (
 	"context"
+	"fmt"
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
 	N "github.com/sagernet/sing/common/network"
+	log "github.com/sirupsen/logrus"
 )
 
 type connCounter struct {
@@ -45,17 +47,105 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	if m.User == "" {
 		return conn
 	}
+
 	remote := ""
 	if m.Source.Addr.IsValid() {
 		remote = m.Source.Addr.String()
 	}
+
+	var (
+		userRec userRecord
+		ok      bool
+	)
+	t.svc.mu.RLock()
+	userRec, ok = t.svc.users[m.User]
+	t.svc.mu.RUnlock()
+
+	dest := m.Domain
+	if dest == "" && m.Destination.Addr.IsValid() {
+		dest = m.Destination.Addr.String()
+	}
+
+	fields := log.Fields{
+		"remote": remote,
+	}
+	if dest != "" {
+		fields["dest"] = dest
+	}
+	if ok {
+		fields["uid"] = userRec.UID
+		if userRec.Email != "" {
+			fields["email"] = userRec.Email
+		}
+	}
+	t.svc.logger.WithFields(fields).Info("AnyTLS TCP request")
+
+	// Audit check: if a rule hits, close the connection immediately.
+	if ok && dest != "" && t.svc.rules != nil {
+		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
+		if t.svc.rules.Detect(t.svc.tag, dest, email, remote) {
+			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit, closing connection")
+			_ = conn.Close()
+			return conn
+		}
+	}
+
 	if !t.svc.allowConnection(m.User, remote) {
-		conn.Close()
+		_ = conn.Close()
 		return conn
 	}
+
 	return &connCounter{Conn: conn, svc: t.svc, user: m.User}
 }
 
-func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketConn, _ adapter.InboundContext, _ adapter.Rule, _ adapter.Outbound) N.PacketConn {
+func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketConn, m adapter.InboundContext, _ adapter.Rule, _ adapter.Outbound) N.PacketConn {
+	if t.svc == nil {
+		return conn
+	}
+	if m.User == "" {
+		return conn
+	}
+
+	remote := ""
+	if m.Source.Addr.IsValid() {
+		remote = m.Source.Addr.String()
+	}
+
+	var (
+		userRec userRecord
+		ok      bool
+	)
+	t.svc.mu.RLock()
+	userRec, ok = t.svc.users[m.User]
+	t.svc.mu.RUnlock()
+
+	dest := m.Domain
+	if dest == "" && m.Destination.Addr.IsValid() {
+		dest = m.Destination.Addr.String()
+	}
+
+	fields := log.Fields{
+		"remote": remote,
+	}
+	if dest != "" {
+		fields["dest"] = dest
+	}
+	if ok {
+		fields["uid"] = userRec.UID
+		if userRec.Email != "" {
+			fields["email"] = userRec.Email
+		}
+	}
+	t.svc.logger.WithFields(fields).Info("AnyTLS UDP packet")
+
+	// Audit check for UDP. We cannot directly close the logical session here,
+	// but we still record violations for panel-side auditing.
+	if ok && dest != "" && t.svc.rules != nil {
+		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
+		if t.svc.rules.Detect(t.svc.tag, dest, email, remote) {
+			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit on UDP")
+		}
+	}
+
 	return conn
 }
