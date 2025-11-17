@@ -73,6 +73,28 @@ func (c *connCounter) Close() error {
 	return c.Conn.Close()
 }
 
+type packetConnCounter struct {
+	N.PacketConn
+	svc     *AnyTLSService
+	user    string
+	host    string
+	blocked bool
+}
+
+func (c *packetConnCounter) Close() error {
+	if c.svc != nil && c.user != "" && c.host != "" {
+		c.svc.mu.Lock()
+		if ips, ok := c.svc.onlineIPs[c.user]; ok {
+			delete(ips, c.host)
+			if len(ips) == 0 {
+				delete(c.svc.onlineIPs, c.user)
+			}
+		}
+		c.svc.mu.Unlock()
+	}
+	return c.PacketConn.Close()
+}
+
 type anyTLSTracker struct {
 	svc *AnyTLSService
 }
@@ -103,8 +125,8 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	t.svc.mu.RUnlock()
 
 	dest := m.Domain
-	if dest == "" && m.Destination.Addr.IsValid() {
-		dest = m.Destination.Addr.String()
+	if dest == "" {
+		dest = m.Destination.String()
 	}
 
 	fields := log.Fields{
@@ -169,6 +191,13 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 		remote = m.Source.Addr.String()
 	}
 
+	host := remote
+	if host != "" {
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+	}
+
 	var (
 		userRec userRecord
 		ok      bool
@@ -178,8 +207,8 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 	t.svc.mu.RUnlock()
 
 	dest := m.Domain
-	if dest == "" && m.Destination.Addr.IsValid() {
-		dest = m.Destination.Addr.String()
+	if dest == "" {
+		dest = m.Destination.String()
 	}
 
 	fields := log.Fields{
@@ -201,18 +230,28 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 			remote, dest, nodeTag)
 	}
 
-	// Audit check for UDP. We cannot directly close the logical session here,
-	// but we still record violations for panel-side auditing.
+	blocked := false
+
+	// Audit check for UDP: if a rule hits, block this logical session.
 	if ok && dest != "" && t.svc.rules != nil {
 		userKey := fmt.Sprintf("%d", userRec.UID)
-		srcIP := remote
-		if h, _, err := net.SplitHostPort(srcIP); err == nil {
-			srcIP = h
-		}
+		srcIP := host
 		if t.svc.rules.Detect(t.svc.tag, dest, userKey, srcIP) {
-			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit on UDP")
+			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit on UDP, closing connection")
+			blocked = true
 		}
 	}
 
-	return conn
+	// Device limit check (only if not already blocked by audit).
+	if !blocked && !t.svc.allowConnection(m.User, remote) {
+		// allowConnection already logs a warning when device limit is exceeded.
+		blocked = true
+	}
+
+	if blocked {
+		_ = conn.Close()
+		return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host, blocked: true}
+	}
+
+	return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host}
 }
