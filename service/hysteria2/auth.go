@@ -50,7 +50,6 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 		// New device
 		if user.DeviceLimit > 0 && len(ipSet) >= user.DeviceLimit {
 			logger.WithFields(log.Fields{
-				"email":       user.Email,
 				"uid":         user.UID,
 				"deviceLimit": user.DeviceLimit,
 				"remote":      host,

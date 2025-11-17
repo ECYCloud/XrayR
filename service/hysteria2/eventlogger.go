@@ -35,9 +35,6 @@ func (l *hyEventLogger) userFields(id string) log.Fields {
 
 	if user, ok := l.svc.users[id]; ok {
 		fields["uid"] = user.UID
-		if user.Email != "" {
-			fields["email"] = user.Email
-		}
 	}
 	return fields
 }
@@ -59,8 +56,8 @@ func (l *hyEventLogger) auditRequest(addr net.Addr, id, reqAddr string) {
 		return
 	}
 
-	email := fmt.Sprintf("%s|%s|%d", l.svc.tag, user.Email, user.UID)
-	if l.svc.rules.Detect(l.svc.tag, reqAddr, email, host) {
+	userKey := fmt.Sprintf("%d", user.UID)
+	if l.svc.rules.Detect(l.svc.tag, reqAddr, userKey, host) {
 		// Mark this connection ID as blocked. The TrafficLogger will see this
 		// flag and return false on the next traffic callback, which instructs
 		// the Hysteria2 core to disconnect the client immediately.
@@ -74,7 +71,6 @@ func (l *hyEventLogger) auditRequest(addr net.Addr, id, reqAddr string) {
 			"remote":  host,
 			"reqAddr": reqAddr,
 			"uid":     user.UID,
-			"email":   user.Email,
 		}).Warn("Hysteria2 audit rule hit, scheduling disconnect")
 	}
 }
@@ -148,9 +144,8 @@ func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 	}
 
 	if ok {
-		emailStr := fmt.Sprintf("%s|%d", user.Email, user.UID)
-		l.logger().Infof("from %s accepted tcp:%s [%s] email: %s",
-			remote, reqAddr, nodeTag, emailStr)
+		l.logger().Infof("from %s accepted tcp:%s [%s] uid: %d",
+			remote, reqAddr, nodeTag, user.UID)
 	} else {
 		l.logger().Infof("from %s accepted tcp:%s [%s]",
 			remote, reqAddr, nodeTag)
@@ -196,9 +191,8 @@ func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, r
 	}
 
 	if ok {
-		emailStr := fmt.Sprintf("%s|%d", user.Email, user.UID)
-		l.logger().Infof("from %s accepted udp:%s [%s] email: %s",
-			remote, reqAddr, nodeTag, emailStr)
+		l.logger().Infof("from %s accepted udp:%s [%s] uid: %d",
+			remote, reqAddr, nodeTag, user.UID)
 	} else {
 		l.logger().Infof("from %s accepted udp:%s [%s]",
 			remote, reqAddr, nodeTag)

@@ -160,8 +160,9 @@ func cipherFromString(c string) shadowsocks.CipherType {
 }
 
 func (c *Controller) buildUserTag(user *api.UserInfo) string {
-	// Format user identifier as email|uid (without node tag) to avoid duplicate tags in logs.
-	return fmt.Sprintf("%s|%d", user.Email, user.UID)
+	// Use UID-only as the user identifier. This makes the identifier stable
+	// even if the user's email is changed on the panel side.
+	return fmt.Sprintf("%d", user.UID)
 }
 
 func (c *Controller) checkShadowsocksPassword(password string, method string) (string, error) {

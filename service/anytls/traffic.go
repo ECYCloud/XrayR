@@ -139,7 +139,6 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 		if user.DeviceLimit > 0 && len(ips) >= user.DeviceLimit {
 			s.logger.WithFields(log.Fields{
 				"uid":         user.UID,
-				"email":       user.Email,
 				"deviceLimit": user.DeviceLimit,
 				"remote":      ip,
 			}).Warn("AnyTLS user exceeded device limit")

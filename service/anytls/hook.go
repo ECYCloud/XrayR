@@ -115,18 +115,13 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 	}
 	if ok {
 		fields["uid"] = userRec.UID
-		if userRec.Email != "" {
-			fields["email"] = userRec.Email
-		}
 	}
 
-	// Match XrayR controller-style access log format:
-	// from <ip:port> accepted tcp:<dest> [<tag>] email: <tag|email|uid>
+	// Access log: only expose UID, not email.
 	nodeTag := t.svc.tag
 	if ok {
-		emailStr := fmt.Sprintf("%s|%d", userRec.Email, userRec.UID)
-		t.svc.logger.Infof("from %s accepted tcp:%s [%s] email: %s",
-			remote, dest, nodeTag, emailStr)
+		t.svc.logger.Infof("from %s accepted tcp:%s [%s] uid: %d",
+			remote, dest, nodeTag, userRec.UID)
 	} else {
 		t.svc.logger.Infof("from %s accepted tcp:%s [%s]",
 			remote, dest, nodeTag)
@@ -136,12 +131,12 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 
 	// Audit check: if a rule hits, mark this connection as blocked and close it.
 	if ok && dest != "" && t.svc.rules != nil {
-		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
+		userKey := fmt.Sprintf("%d", userRec.UID)
 		srcIP := remote
 		if h, _, err := net.SplitHostPort(srcIP); err == nil {
 			srcIP = h
 		}
-		if t.svc.rules.Detect(t.svc.tag, dest, email, srcIP) {
+		if t.svc.rules.Detect(t.svc.tag, dest, userKey, srcIP) {
 			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit, closing connection")
 			blocked = true
 		}
@@ -195,16 +190,12 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 	}
 	if ok {
 		fields["uid"] = userRec.UID
-		if userRec.Email != "" {
-			fields["email"] = userRec.Email
-		}
 	}
 
 	nodeTag := t.svc.tag
 	if ok {
-		emailStr := fmt.Sprintf("%s|%d", userRec.Email, userRec.UID)
-		t.svc.logger.Infof("from %s accepted udp:%s [%s] email: %s",
-			remote, dest, nodeTag, emailStr)
+		t.svc.logger.Infof("from %s accepted udp:%s [%s] uid: %d",
+			remote, dest, nodeTag, userRec.UID)
 	} else {
 		t.svc.logger.Infof("from %s accepted udp:%s [%s]",
 			remote, dest, nodeTag)
@@ -213,12 +204,12 @@ func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketC
 	// Audit check for UDP. We cannot directly close the logical session here,
 	// but we still record violations for panel-side auditing.
 	if ok && dest != "" && t.svc.rules != nil {
-		email := fmt.Sprintf("%s|%s|%d", t.svc.tag, userRec.Email, userRec.UID)
+		userKey := fmt.Sprintf("%d", userRec.UID)
 		srcIP := remote
 		if h, _, err := net.SplitHostPort(srcIP); err == nil {
 			srcIP = h
 		}
-		if t.svc.rules.Detect(t.svc.tag, dest, email, srcIP) {
+		if t.svc.rules.Detect(t.svc.tag, dest, userKey, srcIP) {
 			t.svc.logger.WithFields(fields).Warn("AnyTLS audit rule hit on UDP")
 		}
 	}

@@ -49,7 +49,7 @@ func (r *Manager) GetDetectResult(tag string) (*[]api.DetectResult, error) {
 	return &detectResult, nil
 }
 
-func (r *Manager) Detect(tag string, destination string, email string, srcIP string) (reject bool) {
+func (r *Manager) Detect(tag string, destination string, userKey string, srcIP string) (reject bool) {
 	reject = false
 	var hitRuleID = -1
 	// If we have some rule for this inbound
@@ -64,10 +64,15 @@ func (r *Manager) Detect(tag string, destination string, email string, srcIP str
 		}
 		// If we hit some rule
 		if reject && hitRuleID != -1 {
-			l := strings.Split(email, "|")
-			uid, err := strconv.Atoi(l[len(l)-1])
+			// Prefer interpreting userKey directly as UID. For backward
+			// compatibility, fall back to parsing the last segment after '|'.
+			uid, err := strconv.Atoi(userKey)
 			if err != nil {
-				errors.LogDebug(context.Background(), fmt.Sprintf("Record illegal behavior failed! Cannot find user's uid: %s", email))
+				parts := strings.Split(userKey, "|")
+				uid, err = strconv.Atoi(parts[len(parts)-1])
+			}
+			if err != nil {
+				errors.LogDebug(context.Background(), fmt.Sprintf("Record illegal behavior failed! Cannot find user's uid: %s", userKey))
 				return reject
 			}
 			newSet := mapset.NewSetWith(api.DetectResult{UID: uid, RuleID: hitRuleID, IP: srcIP})
