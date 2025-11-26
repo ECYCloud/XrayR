@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
@@ -92,10 +91,7 @@ func (r *cachedReader) Interrupt() {
 	r.reader.Interrupt()
 }
 
-// DefaultDispatcher is a custom implementation that embeds the official dispatcher
-// and adds XrayR-specific features like rate limiting and rule management.
 type DefaultDispatcher struct {
-	*dispatcher.DefaultDispatcher
 	ohm         outbound.Manager
 	router      routing.Router
 	policy      policy.Manager
@@ -108,24 +104,11 @@ type DefaultDispatcher struct {
 
 func init() {
 	common.Must(common.RegisterConfig((*Config)(nil), func(ctx context.Context, config interface{}) (interface{}, error) {
-		// First create the official dispatcher
-		officialDispatcher := new(dispatcher.DefaultDispatcher)
-		d := &DefaultDispatcher{
-			DefaultDispatcher: officialDispatcher,
-		}
-
+		d := new(DefaultDispatcher)
 		if err := core.RequireFeatures(ctx, func(om outbound.Manager, router routing.Router, pm policy.Manager, sm stats.Manager, dc dns.Client) error {
 			core.OptionalFeatures(ctx, func(fdns dns.FakeDNSEngine) {
 				d.fdns = fdns
 			})
-			// Initialize the official dispatcher with an empty config
-			dispatcherConfig := &dispatcher.Config{
-				Settings: &dispatcher.SessionConfig{},
-			}
-			if err := officialDispatcher.Init(dispatcherConfig, om, router, pm, sm); err != nil {
-				return err
-			}
-			// Initialize our custom fields
 			return d.Init(config.(*Config), om, router, pm, sm, dc)
 		}); err != nil {
 			return nil, err
@@ -146,9 +129,9 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType for registering as a separate feature, not overriding core dispatcher.
+// Type implements common.HasType so this dispatcher is used as the core routing.Dispatcher.
 func (*DefaultDispatcher) Type() interface{} {
-	return Type()
+	return routing.DispatcherType()
 }
 
 // Start implements common.Runnable.
@@ -408,6 +391,34 @@ func sniffer(ctx context.Context, cReader *cachedReader, metadataOnly bool, netw
 	return contentResult, contentErr
 }
 
+// isPanelInboundTag reports whether the given tag looks like a panel-managed
+// node tag. In this fork, panel nodes use the format:
+//
+//	NodeType_ListenIP_Port_NodeID
+//
+// which always contains at least 3 underscores. Shared infrastructure
+// outbounds such as "IPv4_out", "IPv6_out", "socks5-warp" and "block"
+// do not match this pattern.
+func isPanelInboundTag(tag string) bool {
+	if tag == "" {
+		return false
+	}
+	return strings.Count(tag, "_") >= 3
+}
+
+// isInfrastructureOutboundTag reports whether the outbound tag represents a
+// shared infrastructure outbound that all panel nodes are allowed to use.
+// These tags come from custom_outbound.json and are not tied to a single
+// panel node.
+func isInfrastructureOutboundTag(tag string) bool {
+	switch tag {
+	case "IPv4_out", "IPv6_out", "socks5-warp", "block":
+		return true
+	default:
+		return false
+	}
+}
+
 func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.Link, destination net.Destination) {
 	// Note: dns.HostsLookup interface has been removed in Xray-core v25.10.15
 	// The hosts lookup functionality is now handled internally by the DNS client
@@ -434,52 +445,52 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 
 	routingLink := routingSession.AsRoutingContext(ctx)
 	inTag := routingLink.GetInboundTag()
+	panelInbound := isPanelInboundTag(inTag)
 
-	// 判断当前入站是否是由 XrayR 面板控制的节点。
-	// 面板节点都会在启动时通过 AddInboundLimiter 在 Limiter.InboundInfo 中注册一条记录，
-	// 利用这一点可以区分“面板节点的入站”和“纯自定义入站”。
-	isPanelInbound := false
-	if d.Limiter != nil && d.Limiter.InboundInfo != nil && inTag != "" {
-		if _, ok := d.Limiter.InboundInfo.Load(inTag); ok {
-			isPanelInbound = true
+	// Routing logic: honor forced outbound tag first, then router rules,
+	// then fall back to an outbound whose tag matches the inbound tag.
+	if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
+		ctx = session.SetForcedOutboundTagToContext(ctx, "")
+		if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
+			if panelInbound && !isInfrastructureOutboundTag(forcedOutboundTag) && forcedOutboundTag != inTag {
+				// For panel-managed inbounds, never detour into another panel node's
+				// outbound handler. Only allow infrastructure outbounds (IPv4_out,
+				// IPv6_out, socks5-warp, block) or the node's own outbound (same tag
+				// as inbound).
+				errors.LogWarning(ctx, "rejecting cross-node forced detour from [", inTag, "] to [", forcedOutboundTag, "] for [", destination, "]")
+			} else {
+				errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
+				handler = h
+			}
+		} else {
+			errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
+			common.Close(link.Writer)
+			common.Interrupt(link.Reader)
+			return
+		}
+	} else if d.router != nil {
+		if route, err := d.router.PickRoute(routingLink); err == nil {
+			outTag := route.GetOutboundTag()
+			if h := d.ohm.GetHandler(outTag); h != nil {
+				if panelInbound && !isInfrastructureOutboundTag(outTag) && outTag != inTag {
+					// For panel-managed inbounds, prevent routing into other panel
+					// nodes' outbounds. This keeps "which node handled this
+					// connection" strictly aligned with inbound Tag.
+					errors.LogWarning(ctx, "rejecting cross-node detour from [", inTag, "] to [", outTag, "] for [", destination, "]")
+				} else {
+					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+					handler = h
+				}
+			} else {
+				errors.LogWarning(ctx, "non existing outTag: ", outTag)
+			}
+		} else {
+			errors.LogInfo(ctx, "default route for ", destination)
 		}
 	}
 
-	if isPanelInbound {
-		// 面板节点：严格按照“哪个节点的入站就用哪个节点自己的出站”这一规则，
-		// 完全跳过 router 和 forcedOutboundTag，禁止把流量转发到其他节点的出站上。
-		handler = d.ohm.GetHandler(inTag)
-	} else {
-		// 非面板节点（例如手动在 core 配置里的入站），保持原来的路由行为：
-		// 先看是否有 forcedOutboundTag，其次才是 router 规则，最后才回退到与入站同名的出站。
-		if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
-			ctx = session.SetForcedOutboundTagToContext(ctx, "")
-			if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
-				errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
-				handler = h
-			} else {
-				errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			}
-		} else if d.router != nil {
-			if route, err := d.router.PickRoute(routingLink); err == nil {
-				outTag := route.GetOutboundTag()
-				if h := d.ohm.GetHandler(outTag); h != nil {
-					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
-					handler = h
-				} else {
-					errors.LogWarning(ctx, "non existing outTag: ", outTag)
-				}
-			} else {
-				errors.LogInfo(ctx, "default route for ", destination)
-			}
-		}
-
-		if handler == nil {
-			handler = d.ohm.GetHandler(inTag) // Default outbound handler tag should be as same as the inbound tag
-		}
+	if handler == nil {
+		handler = d.ohm.GetHandler(inTag) // Default outbound handler tag should be as same as the inbound tag
 	}
 
 	// 如果仍然找不到任何合适的出站，就使用 core 的默认出站（通常是第一个出站）。
