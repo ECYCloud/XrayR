@@ -61,9 +61,7 @@ func (h *Hysteria2Service) Start() error {
 	}
 
 	h.nodeInfo = nodeInfo
-	// Use a NodeID-inclusive tag format consistent with the main Controller so
-	// that limiter and rule state for different nodes never collide.
-	h.tag = fmt.Sprintf("%s_%s_%d_%d", h.nodeInfo.NodeType, h.config.ListenIP, h.nodeInfo.Port, h.nodeInfo.NodeID)
+	h.tag = fmt.Sprintf("%s_%s_%d", h.nodeInfo.NodeType, h.config.ListenIP, h.nodeInfo.Port)
 	h.startAt = time.Now()
 
 	// Initial user list.

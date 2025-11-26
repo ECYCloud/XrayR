@@ -13,12 +13,13 @@ import (
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/policy"
-	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/mylego"
+	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -61,6 +62,20 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		"Type": api.Describe().NodeType,
 		"ID":   api.Describe().NodeID,
 	})
+	// Try to get custom dispatcher; tests may not register it, so provide a safe fallback.
+	var md *mydispatcher.DefaultDispatcher
+	if f := server.GetFeature(mydispatcher.Type()); f != nil {
+		if d, ok := f.(*mydispatcher.DefaultDispatcher); ok {
+			md = d
+		}
+	}
+	if md == nil {
+		md = &mydispatcher.DefaultDispatcher{
+			Limiter:     limiter.New(),
+			RuleManager: rule.New(),
+		}
+	}
+
 	controller := &Controller{
 		server:     server,
 		config:     config,
@@ -70,7 +85,7 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
 		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
-		dispatcher: server.GetFeature(routing.DispatcherType()).(*mydispatcher.DefaultDispatcher),
+		dispatcher: md,
 		startAt:    time.Now(),
 		logger:     logger,
 	}
@@ -154,7 +169,8 @@ func (c *Controller) Start() error {
 	)
 
 	// Check cert service in need
-	if c.nodeInfo.EnableTLS && c.config.EnableREALITY == false {
+	// 只根据面板下发的节点配置判断是否启用 REALITY；本地 Config 不再参与 REALITY 逻辑
+	if c.nodeInfo.EnableTLS && !c.nodeInfo.EnableREALITY {
 		c.tasks = append(c.tasks, periodicTask{
 			tag: "cert monitor",
 			Periodic: &task.Periodic{
@@ -597,7 +613,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d online users for node %d (tag=%s)", len(*onlineDevice), c.nodeInfo.NodeID, c.Tag)
+			c.logger.Printf("Report %d online users", len(*onlineDevice))
 		}
 	}
 
@@ -608,7 +624,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportIllegal(detectResult); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d illegal behaviors for node %d (tag=%s)", len(*detectResult), c.nodeInfo.NodeID, c.Tag)
+			c.logger.Printf("Report %d illegal behaviors", len(*detectResult))
 		}
 
 	}
@@ -616,11 +632,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 }
 
 func (c *Controller) buildNodeTag() string {
-	// Include NodeID in the tag to ensure uniqueness across nodes sharing the
-	// same NodeType, ListenIP and Port on a single server. This prevents
-	// limiter and rule manager state (online IPs, audit results, etc.) from
-	// being mixed between different logical nodes in multi-node deployments.
-	return fmt.Sprintf("%s_%s_%d_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port, c.nodeInfo.NodeID)
+	return fmt.Sprintf("%s_%s_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port)
 }
 
 // func (c *Controller) logPrefix() string {
@@ -629,7 +641,8 @@ func (c *Controller) buildNodeTag() string {
 
 // Check Cert
 func (c *Controller) certMonitor() error {
-	if c.nodeInfo.EnableTLS && c.config.EnableREALITY == false {
+	// 仅当当前节点启用 TLS 且未启用 REALITY 时才进行证书监控
+	if c.nodeInfo.EnableTLS && !c.nodeInfo.EnableREALITY {
 		switch c.config.CertConfig.CertMode {
 		case "dns", "http", "tls":
 			lego, err := mylego.New(c.config.CertConfig)

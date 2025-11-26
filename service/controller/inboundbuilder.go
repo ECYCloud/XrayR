@@ -194,14 +194,15 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 
 	// Build TLS and REALITY settings
 	var isREALITY bool
-	if config.DisableLocalREALITYConfig {
-		if nodeInfo.REALITYConfig != nil && nodeInfo.EnableREALITY {
+	// 现在的逻辑：**只使用 SSPanel 下发的 Reality 配置，不再从 config.yml 中回退任何公钥/私钥/short_id**
+	if nodeInfo.REALITYConfig != nil && nodeInfo.EnableREALITY {
+		r := nodeInfo.REALITYConfig
+		// 服务端必需字段：Dest 与 PrivateKey 必须由面板提供
+		if r.Dest != "" && r.PrivateKey != "" {
 			isREALITY = true
 			streamSetting.Security = "reality"
-
-			r := nodeInfo.REALITYConfig
 			streamSetting.REALITYSettings = &conf.REALITYConfig{
-				Show:         config.REALITYConfigs.Show,
+				Show:         true,
 				Dest:         []byte(`"` + r.Dest + `"`),
 				Xver:         r.ProxyProtocolVer,
 				ServerNames:  r.ServerNames,
@@ -211,21 +212,6 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 				MaxTimeDiff:  r.MaxTimeDiff,
 				ShortIds:     r.ShortIds,
 			}
-		}
-	} else if config.EnableREALITY && config.REALITYConfigs != nil {
-		isREALITY = true
-		streamSetting.Security = "reality"
-
-		streamSetting.REALITYSettings = &conf.REALITYConfig{
-			Show:         config.REALITYConfigs.Show,
-			Dest:         []byte(`"` + config.REALITYConfigs.Dest + `"`),
-			Xver:         config.REALITYConfigs.ProxyProtocolVer,
-			ServerNames:  config.REALITYConfigs.ServerNames,
-			PrivateKey:   config.REALITYConfigs.PrivateKey,
-			MinClientVer: config.REALITYConfigs.MinClientVer,
-			MaxClientVer: config.REALITYConfigs.MaxClientVer,
-			MaxTimeDiff:  config.REALITYConfigs.MaxTimeDiff,
-			ShortIds:     config.REALITYConfigs.ShortIds,
 		}
 	}
 
