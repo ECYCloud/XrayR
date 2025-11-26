@@ -4,16 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/protocol"
-	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
-	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/proxy"
-	"github.com/xtls/xray-core/transport"
 
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/common/limiter"
@@ -22,67 +18,6 @@ import (
 func (c *Controller) removeInbound(tag string) error {
 	err := c.ibm.RemoveHandler(context.Background(), tag)
 	return err
-}
-
-// dataPathWrapper wraps outbound.Handler to enforce device limit, user/node speed limit,
-// audit rules and ensure userland path is used for stats.
-type dataPathWrapper struct {
-	outbound.Handler
-	pm      policy.Manager
-	sm      stats.Manager
-	limiter *limiter.Limiter
-	// ruleMgr provides audit detection
-	ruleMgr interface {
-		Detect(tag string, destination string, email string, srcIP string) bool
-	}
-	// tag identifies this node/inbound tag for limiter and rules
-	tag string
-}
-
-func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
-	// Force userland path to keep stats/limit in effect
-	if sess := session.InboundFromContext(ctx); sess != nil {
-		sess.CanSpliceCopy = 3
-	}
-
-	if sess := session.InboundFromContext(ctx); sess != nil && sess.User != nil {
-		email := sess.User.Email
-		srcIP := sess.Source.Address.IP().String()
-		// Resolve destination from session
-		var destStr string
-		if outs := session.OutboundsFromContext(ctx); len(outs) > 0 {
-			ob := outs[len(outs)-1]
-			destStr = ob.Target.String()
-		}
-
-		// Use the wrapper's tag as node identifier; email is formatted as email|uid.
-		nodeTag := w.tag
-
-		// Audit check: reject immediately on hit
-		if w.ruleMgr != nil && email != "" && destStr != "" {
-			if w.ruleMgr.Detect(nodeTag, destStr, email, srcIP) {
-				// close link
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			}
-		}
-
-		// Device limit and rate limit
-		if w.limiter != nil && email != "" {
-			if bucket, ok, reject := w.limiter.GetUserBucket(nodeTag, email, srcIP); reject {
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			} else if ok && bucket != nil {
-				// Limit uplink and downlink: wrap Reader and Writer
-				link.Reader = w.limiter.RateReader(link.Reader, bucket)
-				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
-			}
-		}
-	}
-
-	w.Handler.Dispatch(ctx, link)
 }
 
 func (c *Controller) removeOutbound(tag string) error {
@@ -114,8 +49,6 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 	if !ok {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
-	// Wrap outbound handler to enforce audit/device limit/rate limit and keep stats path
-	handler = &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
 	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
 		return err
 	}

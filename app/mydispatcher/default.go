@@ -434,39 +434,55 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 
 	routingLink := routingSession.AsRoutingContext(ctx)
 	inTag := routingLink.GetInboundTag()
-	isPickRoute := 0
-	if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
-		ctx = session.SetForcedOutboundTagToContext(ctx, "")
-		if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
-			isPickRoute = 1
-			errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
-			handler = h
-		} else {
-			errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
-			common.Close(link.Writer)
-			common.Interrupt(link.Reader)
-			return
+
+	// 判断当前入站是否是由 XrayR 面板控制的节点。
+	// 面板节点都会在启动时通过 AddInboundLimiter 在 Limiter.InboundInfo 中注册一条记录，
+	// 利用这一点可以区分“面板节点的入站”和“纯自定义入站”。
+	isPanelInbound := false
+	if d.Limiter != nil && d.Limiter.InboundInfo != nil && inTag != "" {
+		if _, ok := d.Limiter.InboundInfo.Load(inTag); ok {
+			isPanelInbound = true
 		}
-	} else if d.router != nil {
-		if route, err := d.router.PickRoute(routingLink); err == nil {
-			outTag := route.GetOutboundTag()
-			if h := d.ohm.GetHandler(outTag); h != nil {
-				isPickRoute = 2
-				errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+	}
+
+	if isPanelInbound {
+		// 面板节点：严格按照“哪个节点的入站就用哪个节点自己的出站”这一规则，
+		// 完全跳过 router 和 forcedOutboundTag，禁止把流量转发到其他节点的出站上。
+		handler = d.ohm.GetHandler(inTag)
+	} else {
+		// 非面板节点（例如手动在 core 配置里的入站），保持原来的路由行为：
+		// 先看是否有 forcedOutboundTag，其次才是 router 规则，最后才回退到与入站同名的出站。
+		if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
+			ctx = session.SetForcedOutboundTagToContext(ctx, "")
+			if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
+				errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
 				handler = h
 			} else {
-				errors.LogWarning(ctx, "non existing outTag: ", outTag)
+				errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
 			}
-		} else {
-			errors.LogInfo(ctx, "default route for ", destination)
+		} else if d.router != nil {
+			if route, err := d.router.PickRoute(routingLink); err == nil {
+				outTag := route.GetOutboundTag()
+				if h := d.ohm.GetHandler(outTag); h != nil {
+					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+					handler = h
+				} else {
+					errors.LogWarning(ctx, "non existing outTag: ", outTag)
+				}
+			} else {
+				errors.LogInfo(ctx, "default route for ", destination)
+			}
+		}
+
+		if handler == nil {
+			handler = d.ohm.GetHandler(inTag) // Default outbound handler tag should be as same as the inbound tag
 		}
 	}
 
-	if handler == nil {
-		handler = d.ohm.GetHandler(inTag) // Default outbound handler tag should be as same as the inbound tag
-	}
-
-	// If there is no outbound with tag as same as the inbound tag
+	// 如果仍然找不到任何合适的出站，就使用 core 的默认出站（通常是第一个出站）。
 	if handler == nil {
 		handler = d.ohm.GetDefaultHandler()
 	}
@@ -479,16 +495,14 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	}
 
 	if accessMessage := log.AccessMessageFromContext(ctx); accessMessage != nil {
-		if tag := handler.Tag(); tag != "" {
-			if inTag == "" {
-				accessMessage.Detour = tag
-			} else if isPickRoute == 1 {
-				accessMessage.Detour = inTag + " ==> " + tag
-			} else if isPickRoute == 2 {
-				accessMessage.Detour = inTag + " -> " + tag
-			} else {
-				accessMessage.Detour = inTag + " >> " + tag
-			}
+		// 在面板集成场景下，我们只关心“这个连接属于哪个节点（入站标签）”。
+		// 为了避免日志里出现类似 "[V2ray_... >> Shadowsocks_...]" 这种让人误解为
+		// "两个节点混在一起" 的信息，这里统一只记录入站标签作为 Detour。
+		if inTag != "" {
+			accessMessage.Detour = inTag
+		} else if tag := handler.Tag(); tag != "" {
+			// 如果入站标签为空，就退回到出站标签（保持兼容性）。
+			accessMessage.Detour = tag
 		}
 		log.Record(accessMessage)
 	}
