@@ -631,7 +631,8 @@ func (c *Controller) userInfoMonitor() (err error) {
 }
 
 func (c *Controller) buildNodeTag() string {
-	return fmt.Sprintf("%s_%s_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port)
+	// Include NodeID to ensure uniqueness when multiple nodes share the same IP:Port
+	return fmt.Sprintf("%s_%s_%d_Node%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port, c.nodeInfo.NodeID)
 }
 
 // func (c *Controller) logPrefix() string {
