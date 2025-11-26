@@ -184,16 +184,19 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 		user = sessionInbound.User
 	}
 
-	if user != nil && len(user.Email) > 0 {
-		// Speed Limit and Device Limit
-		bucket, ok, reject := d.Limiter.GetUserBucket(sessionInbound.Tag, user.Email, sessionInbound.Source.Address.IP().String())
+	if user != nil && len(user.Email) > 0 && sessionInbound != nil {
+		// Speed Limit and Device Limit. In this fork, User.Email already stores
+		// the UID string (see controller.buildUserTag). To avoid confusion in
+		// logs, treat it explicitly as UID.
+		uidStr := user.Email
+		bucket, ok, reject := d.Limiter.GetUserBucket(sessionInbound.Tag, uidStr, sessionInbound.Source.Address.IP().String())
 		if reject {
-			errors.LogWarning(ctx, "Devices reach the limit: ", user.Email)
+			errors.LogWarning(ctx, "Devices reach the limit for UID: ", uidStr)
 			common.Close(outboundLink.Writer)
 			common.Close(inboundLink.Writer)
 			common.Interrupt(outboundLink.Reader)
 			common.Interrupt(inboundLink.Reader)
-			return nil, nil, newError("Devices reach the limit: ", user.Email)
+			return nil, nil, newError("Devices reach the limit for UID: ", uidStr)
 		}
 		if ok {
 			inboundLink.Writer = d.Limiter.RateWriter(inboundLink.Writer, bucket)
@@ -201,8 +204,13 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 		}
 
 		p := d.policy.ForLevel(user.Level)
+		// To avoid traffic stats from different nodes being mixed together in
+		// multi-node deployments, scope the stats key by both inbound tag and
+		// UID. This string must match the one used when reading stats back in
+		// controller.getTraffic.
+		statsKey := sessionInbound.Tag + "|" + uidStr
 		if p.Stats.UserUplink {
-			name := "user>>>" + user.Email + ">>>traffic>>>uplink"
+			name := "user>>>" + statsKey + ">>>traffic>>>uplink"
 			if c, _ := stats.GetOrRegisterCounter(d.stats, name); c != nil {
 				inboundLink.Writer = &SizeStatWriter{
 					Counter: c,
@@ -211,7 +219,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 			}
 		}
 		if p.Stats.UserDownlink {
-			name := "user>>>" + user.Email + ">>>traffic>>>downlink"
+			name := "user>>>" + statsKey + ">>>traffic>>>downlink"
 			if c, _ := stats.GetOrRegisterCounter(d.stats, name); c != nil {
 				outboundLink.Writer = &SizeStatWriter{
 					Counter: c,
@@ -412,8 +420,11 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	sessionInbound := session.InboundFromContext(ctx)
 	// Whether the inbound connection contains a user
 	if sessionInbound.User != nil {
-		if d.RuleManager.Detect(sessionInbound.Tag, destination.String(), sessionInbound.User.Email, sessionInbound.Source.Address.IP().String()) {
-			errors.LogError(ctx, fmt.Sprintf("User %s access %s reject by rule", sessionInbound.User.Email, destination.String()))
+		// In this fork, User.Email stores the UID string. For clarity in
+		// audit logs, log it as UID instead of an email address.
+		uidStr := sessionInbound.User.Email
+		if d.RuleManager.Detect(sessionInbound.Tag, destination.String(), uidStr, sessionInbound.Source.Address.IP().String()) {
+			errors.LogError(ctx, fmt.Sprintf("UID %s access %s reject by rule", uidStr, destination.String()))
 			newError("destination is reject by rule")
 			common.Close(link.Writer)
 			common.Interrupt(link.Reader)

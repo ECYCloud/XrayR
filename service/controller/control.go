@@ -145,9 +145,14 @@ func (c *Controller) addUsers(users []*protocol.User, tag string) error {
 		if err != nil {
 			return err
 		}
-		// Pre-register per-user traffic counters so core can increment them (downlink/uplink)
-		uName := "user>>>" + mUser.Email + ">>>traffic>>>uplink"
-		dName := "user>>>" + mUser.Email + ">>>traffic>>>downlink"
+		// Pre-register per-user traffic counters so core can increment them
+		// (downlink/uplink). To avoid traffic from multiple nodes being mixed
+		// together in multi-node deployments, include this controller's tag in
+		// the stats key; DefaultDispatcher uses the same composition when
+		// registering SizeStatWriter.
+		statsKey := c.Tag + "|" + mUser.Email
+		uName := "user>>>" + statsKey + ">>>traffic>>>uplink"
+		dName := "user>>>" + statsKey + ">>>traffic>>>downlink"
 		if _, _ = stats.GetOrRegisterCounter(c.stm, uName); true {
 			// no-op
 		}
@@ -181,9 +186,14 @@ func (c *Controller) removeUsers(users []string, tag string) error {
 	return nil
 }
 
-func (c *Controller) getTraffic(email string) (up int64, down int64, upCounter stats.Counter, downCounter stats.Counter) {
-	upName := "user>>>" + email + ">>>traffic>>>uplink"
-	downName := "user>>>" + email + ">>>traffic>>>downlink"
+// getTraffic reads traffic counters for the given user key (UID string).
+// To keep stats isolated between nodes on the same server, we always scope
+// the underlying stats key by this controller's Tag as well as the UID. The
+// key format must match the one used in addUsers and app/mydispatcher.
+func (c *Controller) getTraffic(uid string) (up int64, down int64, upCounter stats.Counter, downCounter stats.Counter) {
+	statsKey := c.Tag + "|" + uid
+	upName := "user>>>" + statsKey + ">>>traffic>>>uplink"
+	downName := "user>>>" + statsKey + ">>>traffic>>>downlink"
 	upCounter = c.stm.GetCounter(upName)
 	downCounter = c.stm.GetCounter(downName)
 	if upCounter != nil && upCounter.Value() != 0 {

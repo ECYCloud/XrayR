@@ -612,7 +612,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d online users", len(*onlineDevice))
+			c.logger.Printf("Report %d online users for node %d (tag=%s)", len(*onlineDevice), c.nodeInfo.NodeID, c.Tag)
 		}
 	}
 
@@ -623,7 +623,7 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportIllegal(detectResult); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d illegal behaviors", len(*detectResult))
+			c.logger.Printf("Report %d illegal behaviors for node %d (tag=%s)", len(*detectResult), c.nodeInfo.NodeID, c.Tag)
 		}
 
 	}
