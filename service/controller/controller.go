@@ -631,8 +631,11 @@ func (c *Controller) userInfoMonitor() (err error) {
 }
 
 func (c *Controller) buildNodeTag() string {
-	// Include NodeID to ensure uniqueness when multiple nodes share the same IP:Port
-	return fmt.Sprintf("%s_%s_%d_Node%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port, c.nodeInfo.NodeID)
+	// Include NodeID in the tag to ensure uniqueness across nodes sharing the
+	// same NodeType, ListenIP and Port on a single server. This prevents
+	// limiter and rule manager state (online IPs, audit results, etc.) from
+	// being mixed between different logical nodes in multi-node deployments.
+	return fmt.Sprintf("%s_%s_%d_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port, c.nodeInfo.NodeID)
 }
 
 // func (c *Controller) logPrefix() string {

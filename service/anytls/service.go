@@ -55,7 +55,9 @@ func (s *AnyTLSService) Start() error {
 	}
 
 	s.nodeInfo = nodeInfo
-	s.tag = fmt.Sprintf("%s_%s_%d", s.nodeInfo.NodeType, s.config.ListenIP, s.nodeInfo.Port)
+	// Use a NodeID-inclusive tag format consistent with Controller/Hysteria2 to
+	// avoid cross-node mixing of limiter and audit state.
+	s.tag = fmt.Sprintf("%s_%s_%d_%d", s.nodeInfo.NodeType, s.config.ListenIP, s.nodeInfo.Port, s.nodeInfo.NodeID)
 	s.startAt = time.Now()
 	s.inboundTag = s.tag
 

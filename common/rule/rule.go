@@ -52,14 +52,12 @@ func (r *Manager) GetDetectResult(tag string) (*[]api.DetectResult, error) {
 func (r *Manager) Detect(tag string, destination string, userKey string, srcIP string) (reject bool) {
 	reject = false
 	var hitRuleID = -1
-	var hitRuleName string
 	// If we have some rule for this inbound
 	if value, ok := r.InboundRule.Load(tag); ok {
 		ruleList := value.([]api.DetectRule)
-		for _, rule := range ruleList {
-			if rule.Pattern.Match([]byte(destination)) {
-				hitRuleID = rule.ID
-				hitRuleName = fmt.Sprintf("Rule#%d", rule.ID)
+		for _, r := range ruleList {
+			if r.Pattern.Match([]byte(destination)) {
+				hitRuleID = r.ID
 				reject = true
 				break
 			}
@@ -77,11 +75,6 @@ func (r *Manager) Detect(tag string, destination string, userKey string, srcIP s
 				errors.LogDebug(context.Background(), fmt.Sprintf("Record illegal behavior failed! Cannot find user's uid: %s", userKey))
 				return reject
 			}
-
-			// Log the audit block with detailed information
-			errors.LogWarning(context.Background(), fmt.Sprintf("[Audit Block] Node: %s | UID: %d | IP: %s | Destination: %s | %s",
-				tag, uid, srcIP, destination, hitRuleName))
-
 			newSet := mapset.NewSetWith(api.DetectResult{UID: uid, RuleID: hitRuleID, IP: srcIP})
 			// If there are any hit history
 			if v, ok := r.InboundDetectResult.LoadOrStore(tag, newSet); ok {
