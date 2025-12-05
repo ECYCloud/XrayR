@@ -54,23 +54,18 @@ func (s *TuicService) buildSingBox() (*box.Box, string, error) {
 		KeyPath:         keyFile,
 	}
 
-	// Set ALPN for TUIC
-	alpn := s.nodeInfo.TuicConfig.ALPN
-	if len(alpn) == 0 {
-		alpn = []string{"h3"}
+	// Set ALPN for TUIC (only if configured, no hardcoded default)
+	if len(s.nodeInfo.TuicConfig.ALPN) > 0 {
+		tlsOpt.ALPN = s.nodeInfo.TuicConfig.ALPN
 	}
-	tlsOpt.ALPN = alpn
 
 	s.mu.RLock()
 	users := make([]option.TUICUser, len(s.authUsers))
 	copy(users, s.authUsers)
 	s.mu.RUnlock()
 
-	// Parse congestion control
+	// Parse congestion control (only if configured, no hardcoded default)
 	congestionControl := s.nodeInfo.TuicConfig.CongestionControl
-	if congestionControl == "" {
-		congestionControl = "bbr"
-	}
 
 	// Parse heartbeat duration
 	heartbeat := time.Duration(s.nodeInfo.TuicConfig.Heartbeat) * time.Second
@@ -141,4 +136,3 @@ func getOrIssueCert(certConfig *mylego.CertConfig) (string, string, error) {
 		return "", "", fmt.Errorf("unsupported certmode: %s", certConfig.CertMode)
 	}
 }
-

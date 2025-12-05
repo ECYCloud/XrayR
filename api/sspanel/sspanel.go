@@ -884,10 +884,13 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 			}
 		}
 
+		// Parse zero_rtt_handshake from string "0"/"1" to bool
+		zeroRTT := nodeConfig.ZeroRTTHandshake == "1" || nodeConfig.ZeroRTTHandshake == "true"
+
 		nodeInfo.TuicConfig = &api.TuicConfig{
 			CongestionControl: nodeConfig.CongestionControl,
 			UDPRelayMode:      nodeConfig.UDPRelayMode,
-			ZeroRTTHandshake:  nodeConfig.ZeroRTTHandshake,
+			ZeroRTTHandshake:  zeroRTT,
 			Heartbeat:         heartbeat,
 			ALPN:              nodeConfig.Alpn,
 		}

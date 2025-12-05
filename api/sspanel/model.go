@@ -47,7 +47,7 @@ type CustomConfig struct {
 	// TUIC specific fields
 	CongestionControl string `json:"congestion_control"`
 	UDPRelayMode      string `json:"udp_relay_mode"`
-	ZeroRTTHandshake  bool   `json:"zero_rtt_handshake"`
+	ZeroRTTHandshake  string `json:"zero_rtt_handshake"` // "0" or "1" from SSPanel
 	Heartbeat         string `json:"heartbeat"`
 }
 
