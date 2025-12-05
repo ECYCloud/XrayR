@@ -798,6 +798,10 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		// AnyTLS is a TLS-based protocol implemented by sing-box and uses TCP transport.
 		transportProtocol = "tcp"
 		enableTLS = true
+	case "Tuic":
+		// TUIC uses QUIC transport and always requires TLS
+		transportProtocol = "udp"
+		enableTLS = true
 	}
 
 	// parse reality config
@@ -840,13 +844,14 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	// Attach Hysteria2-specific configuration when needed
 	if c.NodeType == "Hysteria2" {
 		// up_mbps / down_mbps may be provided as strings in custom_config
-		up := 100
+		// 未配置或配置为非正数时，视为不限速（0 表示不在服务器侧强制带宽上限）
+		up := 0
 		if nodeConfig.UpMbps != "" {
 			if v, err := strconv.Atoi(nodeConfig.UpMbps); err == nil && v > 0 {
 				up = v
 			}
 		}
-		down := 100
+		down := 0
 		if nodeConfig.DownMbps != "" {
 			if v, err := strconv.Atoi(nodeConfig.DownMbps); err == nil && v > 0 {
 				down = v
@@ -866,6 +871,25 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	if c.NodeType == "AnyTLS" {
 		nodeInfo.AnyTLSConfig = &api.AnyTLSConfig{
 			PaddingScheme: nodeConfig.PaddingScheme,
+		}
+	}
+
+	// Attach TUIC-specific configuration when needed
+	if c.NodeType == "Tuic" {
+		// Parse heartbeat interval
+		heartbeat := 10 // default 10 seconds
+		if nodeConfig.Heartbeat != "" {
+			if v, err := strconv.Atoi(nodeConfig.Heartbeat); err == nil && v > 0 {
+				heartbeat = v
+			}
+		}
+
+		nodeInfo.TuicConfig = &api.TuicConfig{
+			CongestionControl: nodeConfig.CongestionControl,
+			UDPRelayMode:      nodeConfig.UDPRelayMode,
+			ZeroRTTHandshake:  nodeConfig.ZeroRTTHandshake,
+			Heartbeat:         heartbeat,
+			ALPN:              nodeConfig.Alpn,
 		}
 	}
 

@@ -39,7 +39,7 @@ type NodeStatus struct {
 type NodeInfo struct {
 	AcceptProxyProtocol bool
 	Authority           string
-	NodeType            string // Must be V2ray, Trojan, Shadowsocks, Hysteria2, AnyTLS
+	NodeType            string // Must be V2ray, Trojan, Shadowsocks, Hysteria2, AnyTLS, Tuic
 	NodeID              int
 	Port                uint32
 	SpeedLimit          uint64 // Bps
@@ -80,6 +80,7 @@ type NodeInfo struct {
 	RejectUnknownSni    bool
 	Hysteria2Config     *Hysteria2Config
 	AnyTLSConfig        *AnyTLSConfig
+	TuicConfig          *TuicConfig
 }
 
 type Hysteria2Config struct {
@@ -92,6 +93,14 @@ type Hysteria2Config struct {
 
 type AnyTLSConfig struct {
 	PaddingScheme []string
+}
+
+type TuicConfig struct {
+	CongestionControl string
+	UDPRelayMode      string
+	ZeroRTTHandshake  bool
+	Heartbeat         int
+	ALPN              []string
 }
 
 type UserInfo struct {

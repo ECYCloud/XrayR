@@ -23,6 +23,7 @@ import (
 	"github.com/ECYCloud/XrayR/service/anytls"
 	"github.com/ECYCloud/XrayR/service/controller"
 	"github.com/ECYCloud/XrayR/service/hysteria2"
+	"github.com/ECYCloud/XrayR/service/tuic"
 )
 
 // Panel Structure
@@ -211,6 +212,11 @@ func (p *Panel) Start() {
 					serviceConfig := *controllerConfig // shallow copy
 					serviceConfig.CertConfig = controllerConfig.CertConfig
 					svc = anytls.New(apiClient, &serviceConfig)
+				case "Tuic":
+					// TUIC uses a sing-box based independent service.
+					serviceConfig := *controllerConfig // shallow copy
+					serviceConfig.CertConfig = controllerConfig.CertConfig
+					svc = tuic.New(apiClient, &serviceConfig)
 				}
 			}
 		}

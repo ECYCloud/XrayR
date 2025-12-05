@@ -44,6 +44,11 @@ type CustomConfig struct {
 	Fingerprint           string          `json:"fingerprint"`
 	IgnoreClientBandwidth bool            `json:"ignore_client_bandwidth"`
 	PaddingScheme         []string        `json:"padding_scheme"`
+	// TUIC specific fields
+	CongestionControl string `json:"congestion_control"`
+	UDPRelayMode      string `json:"udp_relay_mode"`
+	ZeroRTTHandshake  bool   `json:"zero_rtt_handshake"`
+	Heartbeat         string `json:"heartbeat"`
 }
 
 // UserResponse is the response of user
