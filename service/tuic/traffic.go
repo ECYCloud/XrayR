@@ -66,18 +66,9 @@ func (s *TuicService) syncUsers(userInfo *[]api.UserInfo) {
 			s.traffic[key] = &userTraffic{}
 		}
 
-		// TUIC user with UUID and password (using Passwd as primary password)
+		// TUIC user with UUID and password (using Passwd as password)
 		password := u.Passwd
 		if password == "" {
-			// Fallback: if panel did not return passwd, fall back to UUID,
-			// and log a warning so the operator can fix the panel side.
-			if s.logger != nil {
-				preview := u.UUID
-				if len(preview) > 8 {
-					preview = preview[:8] + "..."
-				}
-				s.logger.Warnf("TUIC user UID=%d UUID=%s has empty passwd from panel; using UUID as password fallback", u.UID, preview)
-			}
 			password = u.UUID
 		}
 		authUsers = append(authUsers, option.TUICUser{
@@ -91,16 +82,9 @@ func (s *TuicService) syncUsers(userInfo *[]api.UserInfo) {
 	s.authUsers = authUsers
 	s.rateLimiters = newRateLimiters
 
-	// Log user sync result (Info level so it shows up in default logs)
+	// Log user sync result
 	if s.logger != nil {
-		preview := ""
-		if len(authUsers) > 0 {
-			preview = authUsers[0].UUID
-			if len(preview) > 8 {
-				preview = preview[:8] + "..."
-			}
-		}
-		s.logger.Infof("TUIC user sync complete: %d auth users configured (first UUID prefix: %s)", len(authUsers), preview)
+		s.logger.Infof("TUIC user sync complete: %d auth users configured", len(authUsers))
 	}
 
 	for uuid := range s.onlineIPs {
