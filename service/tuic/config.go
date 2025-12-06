@@ -64,6 +64,13 @@ func (s *TuicService) buildSingBox() (*box.Box, string, error) {
 	copy(users, s.authUsers)
 	s.mu.RUnlock()
 
+	if len(users) == 0 {
+		return nil, "", fmt.Errorf("no users available for TUIC authentication")
+	}
+
+	// Log user count for debugging
+	s.logger.Infof("Building TUIC inbound with %d users", len(users))
+
 	// Parse congestion control (only if configured, no hardcoded default)
 	congestionControl := s.nodeInfo.TuicConfig.CongestionControl
 
@@ -73,10 +80,14 @@ func (s *TuicService) buildSingBox() (*box.Box, string, error) {
 		heartbeat = 10 * time.Second
 	}
 
+	// Auth timeout (default 10 seconds for better network tolerance)
+	authTimeout := 10 * time.Second
+
 	inOpts := &option.TUICInboundOptions{
 		ListenOptions:     listen,
 		Users:             users,
 		CongestionControl: congestionControl,
+		AuthTimeout:       badoption.Duration(authTimeout),
 		ZeroRTTHandshake:  s.nodeInfo.TuicConfig.ZeroRTTHandshake,
 		Heartbeat:         badoption.Duration(heartbeat),
 		InboundTLSOptionsContainer: option.InboundTLSOptionsContainer{

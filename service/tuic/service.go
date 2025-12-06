@@ -63,6 +63,20 @@ func (s *TuicService) Start() error {
 	if err != nil {
 		return err
 	}
+	if userInfo == nil || len(*userInfo) == 0 {
+		s.logger.Warn("No users found for TUIC node, authentication may fail")
+	} else {
+		s.logger.Infof("Syncing %d users for TUIC node", len(*userInfo))
+		// Debug: log first user UUID (partial) for verification
+		if len(*userInfo) > 0 {
+			firstUser := (*userInfo)[0]
+			uuidPreview := firstUser.UUID
+			if len(uuidPreview) > 8 {
+				uuidPreview = uuidPreview[:8] + "..."
+			}
+			s.logger.Debugf("First user: UID=%d, UUID=%s, HasPassword=%v", firstUser.UID, uuidPreview, firstUser.Passwd != "")
+		}
+	}
 	s.syncUsers(userInfo)
 
 	// Initial rule list.
@@ -138,4 +152,3 @@ func getSingBoxVersion() string {
 	}
 	return "unknown"
 }
-

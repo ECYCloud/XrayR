@@ -82,6 +82,11 @@ func (s *TuicService) syncUsers(userInfo *[]api.UserInfo) {
 	s.authUsers = authUsers
 	s.rateLimiters = newRateLimiters
 
+	// Log user sync result
+	if s.logger != nil {
+		s.logger.Debugf("TUIC user sync complete: %d auth users configured", len(authUsers))
+	}
+
 	for uuid := range s.onlineIPs {
 		if _, ok := newUsers[uuid]; !ok {
 			delete(s.onlineIPs, uuid)
