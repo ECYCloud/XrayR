@@ -74,7 +74,7 @@ func (s *TuicService) Start() error {
 			if len(uuidPreview) > 8 {
 				uuidPreview = uuidPreview[:8] + "..."
 			}
-			s.logger.Debugf("First user: UID=%d, UUID=%s, HasPassword=%v", firstUser.UID, uuidPreview, firstUser.Passwd != "")
+			s.logger.Infof("First TUIC user from panel: UID=%d, UUID prefix=%s, HasPassword=%v", firstUser.UID, uuidPreview, firstUser.Passwd != "")
 		}
 	}
 	s.syncUsers(userInfo)
