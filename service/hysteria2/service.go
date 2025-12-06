@@ -61,7 +61,10 @@ func (h *Hysteria2Service) Start() error {
 	}
 
 	h.nodeInfo = nodeInfo
-	h.tag = fmt.Sprintf("%s_%s_%d", h.nodeInfo.NodeType, h.config.ListenIP, h.nodeInfo.Port)
+	// Tag must be unique per logical node, even if multiple nodes share
+	// the same listen IP and port. Include NodeID to keep limiter and
+	// audit rule state isolated.
+	h.tag = fmt.Sprintf("%s_%s_%d_%d", h.nodeInfo.NodeType, h.config.ListenIP, h.nodeInfo.Port, h.nodeInfo.NodeID)
 	h.startAt = time.Now()
 
 	// Initial user list.

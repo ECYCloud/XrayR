@@ -632,7 +632,12 @@ func (c *Controller) userInfoMonitor() (err error) {
 }
 
 func (c *Controller) buildNodeTag() string {
-	return fmt.Sprintf("%s_%s_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port)
+	// Use a node-unique tag for all limiter/rule bookkeeping to avoid
+	// cross-node mixing when multiple logical nodes share the same
+	// NodeType + ListenIP + Port (e.g. multi-node, CDN, or offset-port
+	// deployments). Including NodeID here guarantees that each SSPanel
+	// node reports its own online users and audit results independently.
+	return fmt.Sprintf("%s_%s_%d_%d", c.nodeInfo.NodeType, c.config.ListenIP, c.nodeInfo.Port, c.nodeInfo.NodeID)
 }
 
 // func (c *Controller) logPrefix() string {

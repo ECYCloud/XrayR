@@ -55,7 +55,10 @@ func (s *TuicService) Start() error {
 	}
 
 	s.nodeInfo = nodeInfo
-	s.tag = fmt.Sprintf("%s_%s_%d", s.nodeInfo.NodeType, s.config.ListenIP, s.nodeInfo.Port)
+	// Ensure tag is unique per TUIC node by embedding NodeID so that
+	// limiter and rule manager state remain per-node, even when
+	// multiple TUIC nodes share the same listen endpoint.
+	s.tag = fmt.Sprintf("%s_%s_%d_%d", s.nodeInfo.NodeType, s.config.ListenIP, s.nodeInfo.Port, s.nodeInfo.NodeID)
 	s.startAt = time.Now()
 	s.inboundTag = s.tag
 
