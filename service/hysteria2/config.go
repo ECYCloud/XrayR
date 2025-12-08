@@ -146,10 +146,19 @@ func (h *Hysteria2Service) certMonitor() error {
 			h.logger.Print(err)
 			return nil
 		}
-		// Hysteria2 server will pick up renewed certificates via TLS reload logic.
-		_, _, _, err = lego.RenewCert()
+		certPath, keyPath, ok, err := lego.RenewCert()
 		if err != nil {
 			h.logger.Print(err)
+			return nil
+		}
+		// ok == true means the certificate was actually renewed on disk.
+		// Rebuild the Hysteria2 server so the new cert is loaded without
+		// requiring a full XrayR restart.
+		if ok {
+			h.logger.Infof("Hysteria2 certificate renewed for %s, reloading server (cert=%s, key=%s)", h.config.CertConfig.CertDomain, certPath, keyPath)
+			if err := h.reloadNode(h.nodeInfo); err != nil {
+				h.logger.Printf("Hysteria2 certificate reload failed: %v", err)
+			}
 		}
 	}
 

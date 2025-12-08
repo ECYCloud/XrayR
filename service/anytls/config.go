@@ -124,3 +124,39 @@ func getOrIssueCert(certConfig *mylego.CertConfig) (string, string, error) {
 		return "", "", fmt.Errorf("unsupported certmode: %s", certConfig.CertMode)
 	}
 }
+
+// certMonitor checks and renews the AnyTLS certificate when needed. When a
+// renewal actually happens (ok == true), the AnyTLS sing-box instance is
+// hot-reloaded so the new certificate is picked up without restarting the
+// whole XrayR process.
+func (s *AnyTLSService) certMonitor() error {
+	if s.config == nil || s.config.CertConfig == nil {
+		return nil
+	}
+
+	if !s.nodeInfo.EnableTLS {
+		return nil
+	}
+
+	switch s.config.CertConfig.CertMode {
+	case "dns", "http", "tls":
+		lego, err := mylego.New(s.config.CertConfig)
+		if err != nil {
+			s.logger.Print(err)
+			return nil
+		}
+		certPath, keyPath, ok, err := lego.RenewCert()
+		if err != nil {
+			s.logger.Print(err)
+			return nil
+		}
+		if ok {
+			s.logger.Infof("AnyTLS certificate renewed for %s, reloading node (cert=%s, key=%s)", s.config.CertConfig.CertDomain, certPath, keyPath)
+			if err := s.reloadNode(s.nodeInfo); err != nil {
+				s.logger.Printf("AnyTLS certificate reload failed: %v", err)
+			}
+		}
+	}
+
+	return nil
+}

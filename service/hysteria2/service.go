@@ -102,7 +102,8 @@ func (h *Hysteria2Service) Start() error {
 		}
 	}()
 
-	// Periodic tasks: user/traffic monitor plus optional cert monitor.
+	// Periodic tasks: user/traffic monitor, node monitor and optional cert
+	// monitor for ACME (dns/http/tls) certificates.
 	interval := time.Duration(h.config.UpdatePeriodic) * time.Second
 	h.tasks = []periodicTask{
 		{
@@ -112,9 +113,16 @@ func (h *Hysteria2Service) Start() error {
 				Execute:  h.userMonitor,
 			},
 		},
+		{
+			tag: "node monitor",
+			Periodic: &task.Periodic{
+				Interval: interval,
+				Execute:  h.nodeMonitor,
+			},
+		},
 	}
 
-	// Check cert service in need
+	// Check cert service in need (dns/http/tls auto-renewal)
 	if h.nodeInfo.EnableTLS {
 		h.tasks = append(h.tasks, periodicTask{
 			tag: "cert monitor",
@@ -144,6 +152,92 @@ func (h *Hysteria2Service) Close() error {
 	if h.server != nil {
 		return h.server.Close()
 	}
+	return nil
+}
+
+// reloadNode replaces the in-memory node information and rebuilds the
+// underlying Hysteria2 server so that changes from the panel (port, TLS,
+// SNI, bandwidth, etc.) or renewed certificates take effect without
+// restarting the whole XrayR process.
+func (h *Hysteria2Service) reloadNode(nodeInfo *api.NodeInfo) error {
+	if nodeInfo == nil {
+		return nil
+	}
+	if nodeInfo.NodeType != "Hysteria2" {
+		return fmt.Errorf("Hysteria2Service reloadNode: unexpected node type %s", nodeInfo.NodeType)
+	}
+	if nodeInfo.Port == 0 {
+		return errors.New("server port must > 0")
+	}
+	if nodeInfo.Hysteria2Config == nil {
+		return errors.New("Hysteria2Config is nil in node info")
+	}
+	if h.config == nil || h.config.CertConfig == nil {
+		return errors.New("CertConfig is required for Hysteria2")
+	}
+
+	h.reloadMu.Lock()
+	defer h.reloadMu.Unlock()
+
+	oldInfo := h.nodeInfo
+	h.nodeInfo = nodeInfo
+
+	// Keep CertDomain in sync with the panel SNI when it was originally
+	// derived from SNI/Host. If the user configured a custom CertDomain,
+	// we respect it and do not override.
+	if h.config.CertConfig != nil && h.nodeInfo.EnableTLS && !h.nodeInfo.EnableREALITY {
+		sni := h.nodeInfo.SNI
+		if sni == "" {
+			sni = h.nodeInfo.Host
+		}
+		if sni != "" {
+			cert := h.config.CertConfig
+			var oldSNI, oldHost string
+			if oldInfo != nil {
+				oldSNI = oldInfo.SNI
+				oldHost = oldInfo.Host
+			}
+			switch cert.CertMode {
+			case "file":
+				if cert.CertFile == "" && cert.KeyFile == "" {
+					cert.CertDomain = sni
+					cert.CertFile = "/etc/XrayR/cert/" + sni + ".cert"
+					cert.KeyFile = "/etc/XrayR/cert/" + sni + ".key"
+				} else if cert.CertDomain == "" || cert.CertDomain == oldSNI || cert.CertDomain == oldHost {
+					cert.CertDomain = sni
+				}
+			case "dns", "http", "tls":
+				if cert.CertDomain == "" || cert.CertDomain == oldSNI || cert.CertDomain == oldHost {
+					cert.CertDomain = sni
+				}
+			}
+		}
+	}
+
+	if h.server != nil {
+		if err := h.server.Close(); err != nil {
+			h.logger.Printf("Hysteria2 reload: failed to close old server: %v", err)
+		}
+		h.server = nil
+	}
+
+	cfg, err := h.buildServerConfig()
+	if err != nil {
+		return err
+	}
+	srv, err := server.NewServer(cfg)
+	if err != nil {
+		return err
+	}
+	h.server = srv
+
+	go func() {
+		if err := h.server.Serve(); err != nil {
+			h.logger.Errorf("Hysteria2 Serve error after reload: %v", err)
+		}
+	}()
+
+	h.logger.Infof("Hysteria2 node reloaded on %s:%d", h.config.ListenIP, h.nodeInfo.Port)
 	return nil
 }
 

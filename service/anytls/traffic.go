@@ -256,6 +256,37 @@ func (s *AnyTLSService) userMonitor() error {
 	return nil
 }
 
+// nodeMonitor watches for AnyTLS node configuration changes from the panel
+// (port, TLS/SNI, AnyTLS-specific options, etc.) and hot-reloads the sing-box
+// instance when a change is detected.
+func (s *AnyTLSService) nodeMonitor() error {
+	if time.Since(s.startAt) < time.Duration(s.config.UpdatePeriodic)*time.Second {
+		return nil
+	}
+
+	nodeInfo, err := s.apiClient.GetNodeInfo()
+	if err != nil {
+		if err.Error() == api.NodeNotModified {
+			return nil
+		}
+		s.logger.Print(err)
+		return nil
+	}
+
+	if nodeInfo == nil || nodeInfo.NodeType != "AnyTLS" {
+		if s.logger != nil {
+			s.logger.Warnf("AnyTLS node monitor: unexpected node info: %v", nodeInfo)
+		}
+		return nil
+	}
+
+	if err := s.reloadNode(nodeInfo); err != nil {
+		s.logger.Printf("AnyTLS node reload failed: %v", err)
+	}
+
+	return nil
+}
+
 func determineRate(nodeLimit, userLimit uint64) (limit uint64) {
 	if nodeLimit == 0 || userLimit == 0 {
 		if nodeLimit > userLimit {

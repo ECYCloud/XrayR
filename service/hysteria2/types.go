@@ -37,6 +37,11 @@ type Hysteria2Service struct {
 	onlineIPs    map[string]map[string]struct{} // uuid -> set of IPs
 	blockedIDs   map[string]bool                // connection id -> blocked by audit
 	rateLimiters map[string]*rate.Limiter       // uuid -> per-user speed limiter
+
+	// reloadMu serializes hot-reload operations (node / cert changes) so that
+	// we never rebuild the underlying Hysteria2 server concurrently from
+	// multiple goroutines (nodeMonitor, certMonitor, Start).
+	reloadMu sync.Mutex
 }
 
 type userRecord struct {

@@ -48,39 +48,43 @@ type NodeInfo struct {
 	FakeType            string
 	Host                string
 	Path                string
-	EnableTLS           bool
-	EnableSniffing      bool
-	RouteOnly           bool
-	EnableVless         bool
-	VlessFlow           string
-	CypherMethod        string
-	ServerKey           string
-	ServiceName         string
-	Method              string
-	Header              json.RawMessage
-	HttpHeaders         map[string]*conf.StringList
-	Headers             map[string]string
-	NameServerConfig    []*conf.NameServerConfig
-	EnableREALITY       bool
-	REALITYConfig       *REALITYConfig
-	Show                bool
-	EnableTFO           bool
-	Dest                string
-	ProxyProtocolVer    uint64
-	ServerNames         []string
-	PrivateKey          string
-	MinClientVer        string
-	MaxClientVer        string
-	MaxTimeDiff         uint64
-	ShortIds            []string
-	Xver                uint64
-	Flow                string
-	Security            string
-	Key                 string
-	RejectUnknownSni    bool
-	Hysteria2Config     *Hysteria2Config
-	AnyTLSConfig        *AnyTLSConfig
-	TuicConfig          *TuicConfig
+	// SNI is the Server Name Indication derived from panel configuration.
+	// For custom_config nodes it prefers `sni` / `server_name`; for legacy
+	// nodes it falls back to the parsed Host when available.
+	SNI              string
+	EnableTLS        bool
+	EnableSniffing   bool
+	RouteOnly        bool
+	EnableVless      bool
+	VlessFlow        string
+	CypherMethod     string
+	ServerKey        string
+	ServiceName      string
+	Method           string
+	Header           json.RawMessage
+	HttpHeaders      map[string]*conf.StringList
+	Headers          map[string]string
+	NameServerConfig []*conf.NameServerConfig
+	EnableREALITY    bool
+	REALITYConfig    *REALITYConfig
+	Show             bool
+	EnableTFO        bool
+	Dest             string
+	ProxyProtocolVer uint64
+	ServerNames      []string
+	PrivateKey       string
+	MinClientVer     string
+	MaxClientVer     string
+	MaxTimeDiff      uint64
+	ShortIds         []string
+	Xver             uint64
+	Flow             string
+	Security         string
+	Key              string
+	RejectUnknownSni bool
+	Hysteria2Config  *Hysteria2Config
+	AnyTLSConfig     *AnyTLSConfig
+	TuicConfig       *TuicConfig
 }
 
 type Hysteria2Config struct {

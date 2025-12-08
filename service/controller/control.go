@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
@@ -61,6 +62,13 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		// Audit check: reject immediately on hit
 		if w.ruleMgr != nil && email != "" && destStr != "" {
 			if w.ruleMgr.Detect(nodeTag, destStr, email, srcIP) {
+				// Log audit rule hit with destination and user info for all protocols.
+				log.WithFields(log.Fields{
+					"tag":   nodeTag,
+					"user":  email,
+					"srcIP": srcIP,
+					"dest":  destStr,
+				}).Warn("audit rule hit, closing connection")
 				// close link
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)

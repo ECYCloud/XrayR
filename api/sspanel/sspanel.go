@@ -490,6 +490,7 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 		EnableTLS:         enableTLS,
 		Path:              path,
 		Host:              host,
+		SNI:               host,
 		EnableVless:       c.EnableVless,
 		VlessFlow:         c.VlessFlow,
 		ServiceName:       serviceName,
@@ -675,6 +676,7 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 		TransportProtocol: transportProtocol,
 		EnableTLS:         true,
 		Host:              host,
+		SNI:               host,
 		ServiceName:       serviceName,
 	}
 
@@ -820,6 +822,17 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		}
 	}
 
+	// Derive SNI from custom_config. Prefer explicit SNI / server_name,
+	// fall back to Host when those are empty.
+	sni := ""
+	if nodeConfig.Sni != "" {
+		sni = nodeConfig.Sni
+	} else if nodeConfig.ServerName != "" {
+		sni = nodeConfig.ServerName
+	} else {
+		sni = nodeConfig.Host
+	}
+
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
 		NodeType:          c.NodeType,
@@ -830,6 +843,7 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		TransportProtocol: transportProtocol,
 		Host:              nodeConfig.Host,
 		Path:              nodeConfig.Path,
+		SNI:               sni,
 		EnableTLS:         enableTLS,
 		EnableVless:       enableVless,
 		VlessFlow:         nodeConfig.Flow,

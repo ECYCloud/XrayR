@@ -288,3 +288,36 @@ func (h *Hysteria2Service) userMonitor() error {
 
 	return nil
 }
+
+// nodeMonitor watches for node-level configuration changes from the panel
+// (including port, TLS/SNI and speed limits) and hot-reloads the underlying
+// Hysteria2 server when needed. This avoids having to restart the whole
+// XrayR process when you edit the node on the panel.
+func (h *Hysteria2Service) nodeMonitor() error {
+	// delay to start, keep in sync with userMonitor behaviour
+	if time.Since(h.startAt) < time.Duration(h.config.UpdatePeriodic)*time.Second {
+		return nil
+	}
+
+	nodeInfo, err := h.apiClient.GetNodeInfo()
+	if err != nil {
+		if err.Error() == api.NodeNotModified {
+			return nil
+		}
+		h.logger.Print(err)
+		return nil
+	}
+
+	if nodeInfo == nil || nodeInfo.NodeType != "Hysteria2" {
+		if h.logger != nil {
+			h.logger.Warnf("Hysteria2 node monitor: unexpected node info: %v", nodeInfo)
+		}
+		return nil
+	}
+
+	if err := h.reloadNode(nodeInfo); err != nil {
+		h.logger.Printf("Hysteria2 node reload failed: %v", err)
+	}
+
+	return nil
+}

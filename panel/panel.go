@@ -199,6 +199,45 @@ func (p *Panel) Start() {
 			if err != nil {
 				log.Panicf("Get node info failed for node: %s", err)
 			}
+
+			// Derive per-node certificate configuration from panel SNI / Host
+			// when TLS is enabled and REALITY is not in use. This allows using
+			// different certificates per node without duplicating config.yml.
+			if nodeInfo != nil && controllerConfig.CertConfig != nil && nodeInfo.EnableTLS && !nodeInfo.EnableREALITY {
+				sni := nodeInfo.SNI
+				if sni == "" {
+					// Fallback to Host when SNI is not explicitly provided
+					sni = nodeInfo.Host
+				}
+				if sni != "" {
+					baseCert := *controllerConfig.CertConfig // copy value
+					nodeCert := &baseCert
+
+					switch nodeCert.CertMode {
+					case "file":
+						// When CertFile/KeyFile are not explicitly configured, use a
+						// simple convention based on SNI under /etc/XrayR/cert.
+						if nodeCert.CertFile == "" && nodeCert.KeyFile == "" {
+							nodeCert.CertDomain = sni
+							nodeCert.CertFile = "/etc/XrayR/cert/" + sni + ".cert"
+							nodeCert.KeyFile = "/etc/XrayR/cert/" + sni + ".key"
+						} else if nodeCert.CertDomain == "" {
+							// If a static path is configured but CertDomain is empty,
+							// still record the logical domain for ACME/renewal logs.
+							nodeCert.CertDomain = sni
+						}
+					case "dns", "http", "tls":
+						// For ACME modes, prefer panel SNI as CertDomain when it is
+						// not explicitly specified in config.yml.
+						if nodeCert.CertDomain == "" {
+							nodeCert.CertDomain = sni
+						}
+					}
+
+					controllerConfig.CertConfig = nodeCert
+				}
+			}
+
 			if nodeInfo != nil {
 				switch nodeInfo.NodeType {
 				case "Hysteria2":

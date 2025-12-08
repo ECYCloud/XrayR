@@ -251,6 +251,37 @@ func (s *TuicService) userMonitor() error {
 	return nil
 }
 
+// nodeMonitor watches for TUIC node configuration changes from the panel
+// (port, TLS/SNI, TUIC-specific options, etc.) and hot-reloads the sing-box
+// instance when a change is detected.
+func (s *TuicService) nodeMonitor() error {
+	if time.Since(s.startAt) < time.Duration(s.config.UpdatePeriodic)*time.Second {
+		return nil
+	}
+
+	nodeInfo, err := s.apiClient.GetNodeInfo()
+	if err != nil {
+		if err.Error() == api.NodeNotModified {
+			return nil
+		}
+		s.logger.Print(err)
+		return nil
+	}
+
+	if nodeInfo == nil || nodeInfo.NodeType != "Tuic" {
+		if s.logger != nil {
+			s.logger.Warnf("TUIC node monitor: unexpected node info: %v", nodeInfo)
+		}
+		return nil
+	}
+
+	if err := s.reloadNode(nodeInfo); err != nil {
+		s.logger.Printf("TUIC node reload failed: %v", err)
+	}
+
+	return nil
+}
+
 func determineRate(nodeLimit, userLimit uint64) (limit uint64) {
 	if nodeLimit == 0 || userLimit == 0 {
 		if nodeLimit > userLimit {

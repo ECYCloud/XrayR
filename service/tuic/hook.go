@@ -170,12 +170,20 @@ func (t *tuicTracker) RoutedConnection(_ context.Context, conn net.Conn, m adapt
 		blocked = true
 	}
 
+	// Attach per-user rate limiter if configured.
+	var limiter *rate.Limiter
+	t.svc.mu.RLock()
+	if t.svc.rateLimiters != nil {
+		limiter = t.svc.rateLimiters[m.User]
+	}
+	t.svc.mu.RUnlock()
+
 	if blocked {
 		_ = conn.Close()
-		return &connCounter{Conn: conn, svc: t.svc, user: m.User, blocked: true}
+		return &connCounter{Conn: conn, svc: t.svc, user: m.User, blocked: true, limiter: limiter}
 	}
 
-	return &connCounter{Conn: conn, svc: t.svc, user: m.User}
+	return &connCounter{Conn: conn, svc: t.svc, user: m.User, limiter: limiter}
 }
 
 func (t *tuicTracker) RoutedPacketConnection(_ context.Context, conn N.PacketConn, m adapter.InboundContext, _ adapter.Rule, _ adapter.Outbound) N.PacketConn {

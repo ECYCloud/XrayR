@@ -38,6 +38,10 @@ type TuicService struct {
 	onlineIPs    map[string]map[string]struct{} // authKey -> set of IPs
 	authUsers    []option.TUICUser              // users for sing-box TUIC authentication
 	rateLimiters map[string]*rate.Limiter       // authKey -> per-user speed limiter
+
+	// reloadMu prevents concurrent rebuilds of the underlying sing-box
+	// instance when node configuration or certificates change.
+	reloadMu sync.Mutex
 }
 
 type userRecord struct {
@@ -56,4 +60,3 @@ type periodicTask struct {
 	tag string
 	*task.Periodic
 }
-
