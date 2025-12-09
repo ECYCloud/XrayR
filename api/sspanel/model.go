@@ -44,6 +44,13 @@ type CustomConfig struct {
 	Fingerprint           string          `json:"fingerprint"`
 	IgnoreClientBandwidth bool            `json:"ignore_client_bandwidth"`
 	PaddingScheme         []string        `json:"padding_scheme"`
+	// Hysteria2 port hopping specific fields. We keep them as RawMessage so
+	// that the panel can store booleans, numbers or strings without breaking
+	// JSON decoding, mirroring the loose handling in the PHP panel
+	// implementation.
+	PortHopEnableRaw   json.RawMessage `json:"port_hop_enable"`
+	PortHopPortsRaw    json.RawMessage `json:"port_hop_ports"`
+	PortHopIntervalRaw json.RawMessage `json:"port_hop_interval"`
 	// TUIC specific fields
 	CongestionControl string `json:"congestion_control"`
 	UDPRelayMode      string `json:"udp_relay_mode"`

@@ -93,6 +93,14 @@ type Hysteria2Config struct {
 	UpMbps                int
 	DownMbps              int
 	IgnoreClientBandwidth bool
+
+	// Port hopping configuration for Hysteria2. These fields are populated
+	// from the panel custom_config when the node type is Hysteria2.
+	//
+	// PortHopPorts is a canonical, comma-separated expression such as
+	// "30000-50000,60000" mirroring the panel-side representation.
+	PortHopEnabled bool
+	PortHopPorts   string
 }
 
 type AnyTLSConfig struct {

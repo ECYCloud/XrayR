@@ -42,6 +42,11 @@ type Hysteria2Service struct {
 	// we never rebuild the underlying Hysteria2 server concurrently from
 	// multiple goroutines (nodeMonitor, certMonitor, Start).
 	reloadMu sync.Mutex
+
+	// portHopRules keeps track of the iptables rules we added for Hysteria2
+	// port hopping so that we can reliably remove or update them when the
+	// panel configuration changes or the service stops.
+	portHopRules []portHopRule
 }
 
 type userRecord struct {
@@ -54,6 +59,16 @@ type userRecord struct {
 type userTraffic struct {
 	Upload   int64
 	Download int64
+}
+
+// portHopRule describes a single iptables REDIRECT rule for a contiguous
+// destination port range. FromPortStart and FromPortEnd are inclusive. ToPort
+// is the underlying Hysteria2 server port (offset_port_node) to which traffic
+// is redirected.
+type portHopRule struct {
+	FromPortStart uint16
+	FromPortEnd   uint16
+	ToPort        uint16
 }
 
 type periodicTask struct {

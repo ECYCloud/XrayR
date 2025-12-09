@@ -102,6 +102,10 @@ func (h *Hysteria2Service) Start() error {
 		}
 	}()
 
+	// Apply Hysteria2 port hopping iptables rules for the initial node
+	// configuration, if the panel enabled port hopping for this node.
+	h.refreshPortHopRules()
+
 	// Periodic tasks: user/traffic monitor, node monitor and optional cert
 	// monitor for ACME (dns/http/tls) certificates.
 	interval := time.Duration(h.config.UpdatePeriodic) * time.Second
@@ -143,6 +147,15 @@ func (h *Hysteria2Service) Start() error {
 
 // Close implements service.Service.Close.
 func (h *Hysteria2Service) Close() error {
+	// Best-effort cleanup of any iptables rules we previously installed for
+	// Hysteria2 port hopping.
+	h.reloadMu.Lock()
+	if len(h.portHopRules) > 0 {
+		deletePortHopIptablesRules(h.portHopRules, h.logger)
+		h.portHopRules = nil
+	}
+	h.reloadMu.Unlock()
+
 	for _, t := range h.tasks {
 		if t.Periodic != nil {
 			t.Periodic.Close()
@@ -181,6 +194,10 @@ func (h *Hysteria2Service) reloadNode(nodeInfo *api.NodeInfo) error {
 
 	oldInfo := h.nodeInfo
 	h.nodeInfo = nodeInfo
+
+	// Update port hopping iptables rules according to the latest node
+	// configuration before we rebuild the underlying Hysteria2 server.
+	h.updatePortHopRulesLocked()
 
 	// Keep CertDomain in sync with the panel SNI when it was originally
 	// derived from SNI/Host. If the user configured a custom CertDomain,

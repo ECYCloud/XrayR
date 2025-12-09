@@ -872,12 +872,29 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 			}
 		}
 
+		// Hysteria2 端口跳跃配置：与面板侧的 getHysteria2PortHopConfig 语义保持一致。
+		//
+		// - port_hop_enable 支持 1/0、true/false、on/off、yes/no 等写法；
+		// - port_hop_ports 支持字符串或字符串数组，内部统一规整为
+		//   使用英文逗号分隔的表达式，例如 "30000-50000,60000"。
+		portHopEnabled := parseBoolLooseJSON(nodeConfig.PortHopEnableRaw)
+		portHopPorts := ""
+		if portHopEnabled {
+			portHopPorts = parsePortHopPortsExpr(nodeConfig.PortHopPortsRaw)
+			if portHopPorts == "" {
+				// 如果端口表达式为空，则视为未启用端口跳跃。
+				portHopEnabled = false
+			}
+		}
+
 		nodeInfo.Hysteria2Config = &api.Hysteria2Config{
 			Obfs:                  nodeConfig.Obfs,
 			ObfsPassword:          nodeConfig.ObfsPassword,
 			UpMbps:                up,
 			DownMbps:              down,
 			IgnoreClientBandwidth: nodeConfig.IgnoreClientBandwidth,
+			PortHopEnabled:        portHopEnabled,
+			PortHopPorts:          portHopPorts,
 		}
 	}
 
@@ -911,6 +928,94 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	}
 
 	return nodeInfo, nil
+}
+
+// parseBoolLooseJSON 尝试将任意 JSON 标量（bool / number / string）解析为布尔值，
+// 语义上尽量贴近 PHP 的 FILTER_VALIDATE_BOOLEAN（带 FILTER_NULL_ON_FAILURE）。
+func parseBoolLooseJSON(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+
+	// 直接解析为 bool
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		return b
+	}
+
+	// 尝试解析为数字
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n != 0
+	}
+
+	// 尝试解析为字符串
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(strings.ToLower(s))
+		switch s {
+		case "", "0", "false", "off", "no", "n":
+			return false
+		case "1", "true", "on", "yes", "y":
+			return true
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+// parsePortHopPortsExpr 将 custom_config 中的 port_hop_ports 规整为英文逗号分隔
+// 的表达式，例如 "30000-50000,60000"，以方便在 Go 端进一步解析。
+func parsePortHopPortsExpr(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	// 尝试解析为字符串数组
+	var list []string
+	if err := json.Unmarshal(raw, &list); err == nil {
+		segments := make([]string, 0, len(list))
+		for _, seg := range list {
+			seg = strings.TrimSpace(seg)
+			if seg == "" {
+				continue
+			}
+			segments = append(segments, seg)
+		}
+		return strings.Join(segments, ",")
+	}
+
+	// 尝试解析为单个字符串
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return ""
+		}
+		segments := splitPortsExprString(s)
+		return strings.Join(segments, ",")
+	}
+
+	return ""
+}
+
+// splitPortsExprString 将可能包含空格 / 英文逗号 / 中文逗号的端口表达式切分为片段。
+func splitPortsExprString(s string) []string {
+	f := func(r rune) bool {
+		return r == ',' || r == '，' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}
+	parts := strings.FieldsFunc(s, f)
+	segments := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		segments = append(segments, p)
+	}
+	return segments
 }
 
 // compareVersion, version1 > version2 return 1, version1 < version2 return -1, 0 means equal
