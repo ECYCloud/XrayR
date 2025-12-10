@@ -187,5 +187,6 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ./XrayR-${{ steps.get_filename.outputs.ASSET_NAME }}.zip*
-          tag: ${{ github.ref }}
+          # 对于 release 事件，显式使用 release 的 tag_name，避免出现“Input required and not supplied: tag”
+          tag: ${{ github.event.release.tag_name }}
           file_glob: true
