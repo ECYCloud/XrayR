@@ -21,7 +21,6 @@ type CustomConfig struct {
 	Method                string          `json:"method"`
 	ServerKey             string          `json:"server_key"`
 	TLS                   string          `json:"tls"`
-	EnableVless           string          `json:"enable_vless"`
 	Network               string          `json:"network"`
 	Security              string          `json:"security"`
 	Path                  string          `json:"path"`

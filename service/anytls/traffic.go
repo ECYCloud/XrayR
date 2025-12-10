@@ -2,6 +2,7 @@ package anytls
 
 import (
 	"net"
+	"reflect"
 	"time"
 
 	"github.com/sagernet/sing-box/option"
@@ -277,6 +278,13 @@ func (s *AnyTLSService) nodeMonitor() error {
 		if s.logger != nil {
 			s.logger.Warnf("AnyTLS node monitor: unexpected node info: %v", nodeInfo)
 		}
+		return nil
+	}
+
+	// Same as TUIC/Hysteria2: protect against noisy panel-side metadata updates
+	// that change the ETag without altering the actual AnyTLS node configuration
+	// by skipping reload when the effective NodeInfo is unchanged.
+	if s.nodeInfo != nil && reflect.DeepEqual(s.nodeInfo, nodeInfo) {
 		return nil
 	}
 

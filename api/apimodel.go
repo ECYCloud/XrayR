@@ -14,13 +14,16 @@ const (
 )
 
 // Config API config
+//
+// VLESS 相关配置（是否启用 VLESS、flow 等）不再从本地配置文件读取，
+// 而是完全由面板的 custom_config / NodeType 决定。这样可以避免面板与
+// XrayR 配置不一致带来的混乱，因此这里不再包含任何与 VLESS 开关相关
+// 的字段。
 type Config struct {
 	APIHost             string  `mapstructure:"ApiHost"`
 	NodeID              int     `mapstructure:"NodeID"`
 	Key                 string  `mapstructure:"ApiKey"`
 	NodeType            string  `mapstructure:"NodeType"`
-	EnableVless         bool    `mapstructure:"EnableVless"`
-	VlessFlow           string  `mapstructure:"VlessFlow"`
 	Timeout             int     `mapstructure:"Timeout"`
 	SpeedLimit          float64 `mapstructure:"SpeedLimit"`
 	DeviceLimit         int     `mapstructure:"DeviceLimit"`
@@ -39,7 +42,7 @@ type NodeStatus struct {
 type NodeInfo struct {
 	AcceptProxyProtocol bool
 	Authority           string
-	NodeType            string // Must be V2ray, Trojan, Shadowsocks, Hysteria2, AnyTLS, Tuic
+	NodeType            string // Must be Vmess, Vless, Trojan, Shadowsocks, Hysteria2, AnyTLS, Tuic
 	NodeID              int
 	Port                uint32
 	SpeedLimit          uint64 // Bps
@@ -55,7 +58,6 @@ type NodeInfo struct {
 	EnableTLS        bool
 	EnableSniffing   bool
 	RouteOnly        bool
-	EnableVless      bool
 	VlessFlow        string
 	CypherMethod     string
 	ServerKey        string

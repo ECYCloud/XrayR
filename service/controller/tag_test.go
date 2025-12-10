@@ -13,14 +13,14 @@ func TestBuildNodeTagIncludesNodeID(t *testing.T) {
 	c := &Controller{
 		config: &Config{ListenIP: "0.0.0.0"},
 		nodeInfo: &api.NodeInfo{
-			NodeType: "V2ray",
+			NodeType: "Vmess",
 			NodeID:   1,
 			Port:     443,
 		},
 	}
 
 	got := c.buildNodeTag()
-	want := "V2ray_0.0.0.0_443_1"
+	want := "Vmess_0.0.0.0_443_1"
 	if got != want {
 		t.Fatalf("unexpected tag, got %q, want %q", got, want)
 	}

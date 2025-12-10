@@ -13,8 +13,8 @@ import (
 func TestManagerSeparatesDetectResultsByTag(t *testing.T) {
 	m := New()
 
-	tag1 := "V2ray_0.0.0.0_443_1"
-	tag2 := "V2ray_0.0.0.0_443_2"
+	tag1 := "Vmess_0.0.0.0_443_1"
+	tag2 := "Vmess_0.0.0.0_443_2"
 
 	rule1 := api.DetectRule{ID: 1, Pattern: regexp.MustCompile("example\\.com")}
 	rule2 := api.DetectRule{ID: 2, Pattern: regexp.MustCompile("example\\.org")}

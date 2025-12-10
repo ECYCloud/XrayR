@@ -2,6 +2,7 @@ package hysteria2
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	"github.com/apernet/hysteria/core/v2/server"
@@ -312,6 +313,15 @@ func (h *Hysteria2Service) nodeMonitor() error {
 		if h.logger != nil {
 			h.logger.Warnf("Hysteria2 node monitor: unexpected node info: %v", nodeInfo)
 		}
+		return nil
+	}
+
+	// Panels may update node metadata (such as statistics) frequently without
+	// changing the actual Hysteria2 node configuration. This can cause the ETag
+	// to change and GetNodeInfo to return 200 each time, leading to unnecessary
+	// server restarts. Avoid that by comparing the new NodeInfo with the current
+	// one and only reloading when there is a real config change.
+	if h.nodeInfo != nil && reflect.DeepEqual(h.nodeInfo, nodeInfo) {
 		return nil
 	}
 

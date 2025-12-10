@@ -21,8 +21,8 @@ func TestLimiterSeparatesOnlineUsersByTag(t *testing.T) {
 	}}
 	userList := &users
 
-	tag1 := "V2ray_0.0.0.0_443_1"
-	tag2 := "V2ray_0.0.0.0_443_2"
+	tag1 := "Vmess_0.0.0.0_443_1"
+	tag2 := "Vmess_0.0.0.0_443_2"
 
 	if err := l.AddInboundLimiter(tag1, 0, userList, nil); err != nil {
 		t.Fatalf("AddInboundLimiter for tag1 failed: %v", err)

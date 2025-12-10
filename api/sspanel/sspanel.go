@@ -33,8 +33,6 @@ type APIClient struct {
 	NodeID              int
 	Key                 string
 	NodeType            string
-	EnableVless         bool
-	VlessFlow           string
 	SpeedLimit          float64
 	DeviceLimit         int
 	DisableCustomConfig bool
@@ -43,6 +41,38 @@ type APIClient struct {
 	access              sync.Mutex
 	version             string
 	eTags               map[string]string
+}
+
+// normalizeNodeType canonicalizes NodeType values from configuration so that
+// different spellings such as "VLESS" / "vless" or "hysteria2" are mapped to
+// the internally used forms. This keeps the rest of the code simple and also
+// makes NodeType handling effectively case-insensitive for supported types.
+func normalizeNodeType(t string) string {
+	s := strings.TrimSpace(t)
+	sLower := strings.ToLower(s)
+	switch sLower {
+	case "vmess":
+		// Canonical VMess controller type. Internally we只保留 "Vmess" 这一种写法。
+		return "Vmess"
+	case "vless":
+		return "Vless"
+	case "shadowsocks":
+		return "Shadowsocks"
+	case "shadowsocks-plugin", "shadowsocks_plugin":
+		return "Shadowsocks-Plugin"
+	case "trojan":
+		return "Trojan"
+	case "hysteria2", "hysteria":
+		return "Hysteria2"
+	case "anytls":
+		return "AnyTLS"
+	case "tuic":
+		return "Tuic"
+	default:
+		// For unknown types, keep the original value so that errors are
+		// reported with the exact string from configuration.
+		return s
+	}
 }
 
 // New create api instance
@@ -77,9 +107,7 @@ func New(apiConfig *api.Config) *APIClient {
 		NodeID:              apiConfig.NodeID,
 		Key:                 apiConfig.Key,
 		APIHost:             apiConfig.APIHost,
-		NodeType:            apiConfig.NodeType,
-		EnableVless:         apiConfig.EnableVless,
-		VlessFlow:           apiConfig.VlessFlow,
+		NodeType:            normalizeNodeType(apiConfig.NodeType),
 		SpeedLimit:          apiConfig.SpeedLimit,
 		DeviceLimit:         apiConfig.DeviceLimit,
 		LocalRuleList:       localRuleList,
@@ -200,8 +228,8 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 		}
 
 		switch c.NodeType {
-		case "V2ray":
-			nodeInfo, err = c.ParseV2rayNodeResponse(nodeInfoResponse)
+		case "Vmess":
+			nodeInfo, err = c.ParseVmessNodeResponse(nodeInfoResponse)
 		case "Trojan":
 			nodeInfo, err = c.ParseTrojanNodeResponse(nodeInfoResponse)
 		case "Shadowsocks":
@@ -408,8 +436,9 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 	return nil
 }
 
-// ParseV2rayNodeResponse parse the response for the given node info format
-func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
+// ParseVmessNodeResponse parses the legacy SSPanel node response format
+// for VMess nodes.
+func (c *APIClient) ParseVmessNodeResponse(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var enableTLS bool
 	var path, host, transportProtocol, serviceName, HeaderType string
 	var header json.RawMessage
@@ -491,8 +520,6 @@ func (c *APIClient) ParseV2rayNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 		Path:              path,
 		Host:              host,
 		SNI:               host,
-		EnableVless:       c.EnableVless,
-		VlessFlow:         c.VlessFlow,
 		ServiceName:       serviceName,
 		Header:            header,
 	}
@@ -740,10 +767,10 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]
 // Only available for SSPanel version >= 2021.11
 func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*api.NodeInfo, error) {
 	var (
-		speedLimit             uint64 = 0
-		enableTLS, enableVless bool
-		alterID                uint16 = 0
-		transportProtocol      string
+		speedLimit        uint64 = 0
+		enableTLS         bool
+		alterID           uint16 = 0
+		transportProtocol string
 	)
 
 	// Check if custom_config is null
@@ -773,16 +800,12 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	switch c.NodeType {
 	case "Shadowsocks":
 		transportProtocol = "tcp"
-	case "V2ray":
+	case "Vmess":
 		transportProtocol = nodeConfig.Network
 
 		tlsType := nodeConfig.Security
 		if tlsType == "tls" || tlsType == "xtls" {
 			enableTLS = true
-		}
-
-		if nodeConfig.EnableVless == "1" {
-			enableVless = true
 		}
 	case "Trojan":
 		enableTLS = true
@@ -845,7 +868,6 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		Path:              nodeConfig.Path,
 		SNI:               sni,
 		EnableTLS:         enableTLS,
-		EnableVless:       enableVless,
 		VlessFlow:         nodeConfig.Flow,
 		CypherMethod:      nodeConfig.Method,
 		ServerKey:         nodeConfig.ServerKey,

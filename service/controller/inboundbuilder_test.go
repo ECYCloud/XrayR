@@ -8,9 +8,9 @@ import (
 	. "github.com/ECYCloud/XrayR/service/controller"
 )
 
-func TestBuildV2ray(t *testing.T) {
+func TestBuildVmess(t *testing.T) {
 	nodeInfo := &api.NodeInfo{
-		NodeType:          "V2ray",
+		NodeType:          "Vmess",
 		NodeID:            1,
 		Port:              1145,
 		SpeedLimit:        0,
@@ -77,6 +77,10 @@ func TestBuildSS(t *testing.T) {
 		Host:              "test.test.tk",
 		Path:              "v2ray",
 		EnableTLS:         false,
+		// Use a valid cipher name so that the underlying xray-core config
+		// builder does not fail with "unknown cipher method". Any standard
+		// AEAD cipher supported by shadowsocks is fine here.
+		CypherMethod: "aes-128-gcm",
 	}
 	DNSEnv := make(map[string]string)
 	DNSEnv["ALICLOUD_ACCESS_KEY"] = "aaa"

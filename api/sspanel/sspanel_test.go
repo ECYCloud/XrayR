@@ -13,13 +13,13 @@ func CreateClient() api.API {
 		APIHost:  "http://127.0.0.1:667",
 		Key:      "123",
 		NodeID:   3,
-		NodeType: "V2ray",
+		NodeType: "Vmess",
 	}
 	client := sspanel.New(apiConfig)
 	return client
 }
 
-func TestGetV2rayNodeInfo(t *testing.T) {
+func TestGetVmessNodeInfo(t *testing.T) {
 	client := CreateClient()
 
 	nodeInfo, err := client.GetNodeInfo()

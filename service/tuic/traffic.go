@@ -2,6 +2,7 @@ package tuic
 
 import (
 	"net"
+	"reflect"
 	"time"
 
 	"github.com/sagernet/sing-box/option"
@@ -272,6 +273,14 @@ func (s *TuicService) nodeMonitor() error {
 		if s.logger != nil {
 			s.logger.Warnf("TUIC node monitor: unexpected node info: %v", nodeInfo)
 		}
+		return nil
+	}
+
+	// Some panels update node-related metadata frequently without changing the
+	// actual TUIC configuration, which may cause the ETag to change on every
+	// poll. Guard against unnecessary hot-reloads by comparing the new NodeInfo
+	// with the current in-memory value, similar to controller.nodeInfoMonitor.
+	if s.nodeInfo != nil && reflect.DeepEqual(s.nodeInfo, nodeInfo) {
 		return nil
 	}
 
