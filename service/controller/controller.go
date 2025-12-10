@@ -424,10 +424,10 @@ func (c *Controller) addInboundForSSPlugin(newNodeInfo api.NodeInfo) (err error)
 func (c *Controller) addNewUser(userInfo *[]api.UserInfo, nodeInfo *api.NodeInfo) (err error) {
 	users := make([]*protocol.User, 0)
 	switch nodeInfo.NodeType {
-	case "Vmess", "Vless":
-		// VLESS / VMess 
-		//  NodeType 
-		if nodeInfo.NodeType == "Vless" {
+	case "Vmess", "VLESS":
+		// VLESS / VMess users
+		// chosen by NodeType
+		if nodeInfo.NodeType == "VLESS" {
 			users = c.buildVlessUser(userInfo)
 		} else {
 			users = c.buildVmessUser(userInfo)

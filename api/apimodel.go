@@ -42,7 +42,7 @@ type NodeStatus struct {
 type NodeInfo struct {
 	AcceptProxyProtocol bool
 	Authority           string
-	NodeType            string // Must be Vmess, Vless, Trojan, Shadowsocks, Hysteria2, AnyTLS, Tuic
+	NodeType            string // Must be Vmess, VLESS, Trojan, Shadowsocks, Hysteria2, AnyTLS, Tuic
 	NodeID              int
 	Port                uint32
 	SpeedLimit          uint64 // Bps

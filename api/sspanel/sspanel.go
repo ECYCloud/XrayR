@@ -55,7 +55,8 @@ func normalizeNodeType(t string) string {
 		// Canonical VMess controller type. Internally we只保留 "Vmess" 这一种写法。
 		return "Vmess"
 	case "vless":
-		return "Vless"
+		// Canonical VLESS controller type. Internally统一使用 "VLESS" 作为 NodeType。
+		return "VLESS"
 	case "shadowsocks":
 		return "Shadowsocks"
 	case "shadowsocks-plugin", "shadowsocks_plugin":
@@ -807,6 +808,18 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		if tlsType == "tls" || tlsType == "xtls" {
 			enableTLS = true
 		}
+	case "VLESS":
+		// VLESS 与 VMess 在传输层上的配置字段基本一致：
+		// - network   -> TransportProtocol
+		// - security  -> 是否启用 TLS（非 REALITY 场景）
+		// 若 network 为空，则在后面统一回退到 "tcp"，避免出现
+		// "unknown transport protocol: \"\"" 这类致命错误。
+		transportProtocol = nodeConfig.Network
+
+		tlsType := nodeConfig.Security
+		if tlsType == "tls" || tlsType == "xtls" {
+			enableTLS = true
+		}
 	case "Trojan":
 		enableTLS = true
 		transportProtocol = "tcp"
@@ -827,6 +840,18 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		// TUIC uses QUIC transport and always requires TLS
 		transportProtocol = "udp"
 		enableTLS = true
+	}
+
+	// 对于历史遗留节点，如果 custom_config 中未显式设置 network，
+	// 这里为常见协议类型填充一个安全的默认值，避免因为空字符串导致
+	// InboundBuilder 中的 TransportProtocol.Build() 直接 panic。
+	if transportProtocol == "" {
+		switch c.NodeType {
+		case "Vmess", "VLESS", "Shadowsocks", "Trojan", "AnyTLS":
+			transportProtocol = "tcp"
+		case "Hysteria2", "Tuic":
+			transportProtocol = "udp"
+		}
 	}
 
 	// parse reality config

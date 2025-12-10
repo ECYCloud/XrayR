@@ -28,7 +28,7 @@ A Xray backend framework that can easily support many panels.
 
 * 永久开源且免费。
 * 支持V2ray，Trojan， Shadowsocks多种协议。
-* 支持Vless和XTLS等新特性。
+* 支持 VLESS 和 XTLS 等新特性。
 * 支持单实例对接多面板、多节点，无需重复启动。
 * 支持限制在线IP
 * 支持节点端口级别、用户级别限速。

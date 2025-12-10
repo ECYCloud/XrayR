@@ -27,7 +27,7 @@ Dự án này chỉ là học tập và phát triển và bảo trì cá nhân c
 
 * Nguồn mở vĩnh viễn và miễn phí.
 * Hỗ trợ V2Ray, Trojan, Shadowsocks nhiều giao thức.
-* Hỗ trợ các tính năng mới như Vless và XTL.
+* Hỗ trợ các tính năng mới như VLESS và XTLS.
 * Hỗ trợ trường hợp đơn lẻ kết nối Multi -Panel và Multi -Node, không cần phải bắt đầu nhiều lần.
 * Hỗ trợ hạn chế IP trực tuyến
 * Hỗ trợ cấp cổng nút và giới hạn tốc độ cấp người dùng.

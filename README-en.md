@@ -30,7 +30,7 @@ This project is just my personal learning and development and maintenance. I do 
 
 * Permanent open source and free.
 * Support V2Ray, Trojan, Shadowsocks multiple protocols.
-* Support new features such as Vless and XTLS.
+* Support new features such as VLESS and XTLS.
 * Support single instance docking multi -panel and multi -node, no need to start repeatedly.
 * Support restriction online IP
 * Support node port level and user level speed limit.

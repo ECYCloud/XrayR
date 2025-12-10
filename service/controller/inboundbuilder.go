@@ -57,11 +57,11 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 	var proxySetting any
 	// Build Protocol and Protocol setting
 	switch nodeInfo.NodeType {
-	case "Vmess", "Vless":
+	case "Vmess", "VLESS":
 		// 协议的选择完全由 NodeType 决定：
-		//   - "Vless"  => VLESS inbound
+		//   - "VLESS"  => VLESS inbound
 		//   - "Vmess"  => VMess inbound
-		if nodeInfo.NodeType == "Vless" {
+		if nodeInfo.NodeType == "VLESS" {
 			protocol = "vless"
 			// Enable fallback
 			if config.EnableFallback {
@@ -137,7 +137,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 			NetworkList: []string{"tcp", "udp"},
 		}
 	default:
-		return nil, fmt.Errorf("unsupported node type: %s, Only support: Vmess, Vless, Trojan, Shadowsocks, and Shadowsocks-Plugin", nodeInfo.NodeType)
+		return nil, fmt.Errorf("unsupported node type: %s, Only support: Vmess, VLESS, Trojan, Shadowsocks, and Shadowsocks-Plugin", nodeInfo.NodeType)
 	}
 
 	setting, err := json.Marshal(proxySetting)
