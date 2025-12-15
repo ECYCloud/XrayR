@@ -18,7 +18,6 @@ Nodes:
       ApiHost: "http://127.0.0.1:667"
       ApiKey: "123"
       NodeID: 41
-      NodeType: Vmess # Node type: Vmess, VLESS, Shadowsocks, Trojan, Shadowsocks-Plugin, Hysteria2, AnyTLS, Tuic
       Timeout: 30 # Timeout for the api request
       SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
       DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
@@ -30,7 +29,6 @@ Nodes:
       UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
       EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
       DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
-      EnableProxyProtocol: false # Only works for WebSocket and TCP
       AutoSpeedLimitConfig:
         Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
         WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.
@@ -68,7 +66,6 @@ Nodes:
     #      ApiHost: "http://127.0.0.1:667"
     #      ApiKey: "123"
     #      NodeID: 41
-    #      NodeType: Vmess # Node type: Vmess, VLESS, Shadowsocks, Trojan, Shadowsocks-Plugin, Hysteria2, AnyTLS, Tuic
     #      Timeout: 30 # Timeout for the api request
     #      SpeedLimit: 0 # Mbps, Local settings will replace remote settings, 0 means disable
     #      DeviceLimit: 0 # Local settings will replace remote settings, 0 means disable
@@ -80,7 +77,6 @@ Nodes:
     #      UpdatePeriodic: 60 # Time to update the nodeinfo, how many sec.
     #      EnableDNS: false # Use custom DNS config, Please ensure that you set the dns.json well
     #      DNSType: AsIs # AsIs, UseIP, UseIPv4, UseIPv6, DNS strategy
-    #      EnableProxyProtocol: false # Only works for WebSocket and TCP
     #      AutoSpeedLimitConfig:
     #        Limit: 0 # Warned speed. Set to 0 to disable AutoSpeedLimit (mbps)
     #        WarnTimes: 0 # After (WarnTimes) consecutive warnings, the user will be limited. Set to 0 to punish overspeed user immediately.

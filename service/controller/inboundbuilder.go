@@ -158,7 +158,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 	switch networkType {
 	case "tcp":
 		tcpSetting := &conf.TCPConfig{
-			AcceptProxyProtocol: config.EnableProxyProtocol,
+			AcceptProxyProtocol: nodeInfo.AcceptProxyProtocol,
 			HeaderConfig:        nodeInfo.Header,
 		}
 		streamSetting.TCPSettings = tcpSetting
@@ -166,7 +166,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		headers := make(map[string]string)
 		headers["Host"] = nodeInfo.Host
 		wsSettings := &conf.WebSocketConfig{
-			AcceptProxyProtocol: config.EnableProxyProtocol,
+			AcceptProxyProtocol: nodeInfo.AcceptProxyProtocol,
 			Host:                nodeInfo.Host,
 			Path:                nodeInfo.Path,
 			Headers:             headers,
@@ -231,10 +231,10 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		streamSetting.TLSSettings = tlsSettings
 	}
 
-	// Support ProxyProtocol for any transport protocol
-	if networkType != "tcp" && networkType != "ws" && config.EnableProxyProtocol {
+	// Support ProxyProtocol for any transport protocol (per-node)
+	if networkType != "tcp" && networkType != "ws" && nodeInfo.AcceptProxyProtocol {
 		sockoptConfig := &conf.SocketConfig{
-			AcceptProxyProtocol: config.EnableProxyProtocol,
+			AcceptProxyProtocol: nodeInfo.AcceptProxyProtocol,
 		}
 		streamSetting.SocketSettings = sockoptConfig
 	}

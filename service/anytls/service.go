@@ -18,10 +18,10 @@ import (
 var _ service.Service = (*AnyTLSService)(nil)
 
 func New(apiClient api.API, cfg *controller.Config) *AnyTLSService {
+	clientInfo := apiClient.Describe()
 	logger := log.NewEntry(log.StandardLogger()).WithFields(log.Fields{
-		"Host": apiClient.Describe().APIHost,
-		"Type": apiClient.Describe().NodeType,
-		"ID":   apiClient.Describe().NodeID,
+		"Host": clientInfo.APIHost,
+		"ID":   clientInfo.NodeID,
 	})
 	return &AnyTLSService{
 		apiClient: apiClient,

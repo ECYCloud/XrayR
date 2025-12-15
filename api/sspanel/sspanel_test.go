@@ -10,10 +10,9 @@ import (
 
 func CreateClient() api.API {
 	apiConfig := &api.Config{
-		APIHost:  "http://127.0.0.1:667",
-		Key:      "123",
-		NodeID:   3,
-		NodeType: "Vmess",
+		APIHost: "http://127.0.0.1:667",
+		Key:     "123",
+		NodeID:  3,
 	}
 	client := sspanel.New(apiConfig)
 	return client
@@ -31,10 +30,9 @@ func TestGetVmessNodeInfo(t *testing.T) {
 
 func TestGetSSNodeInfo(t *testing.T) {
 	apiConfig := &api.Config{
-		APIHost:  "http://127.0.0.1:667",
-		Key:      "123",
-		NodeID:   64,
-		NodeType: "Shadowsocks",
+		APIHost: "http://127.0.0.1:667",
+		Key:     "123",
+		NodeID:  64,
 	}
 	client := sspanel.New(apiConfig)
 	nodeInfo, err := client.GetNodeInfo()
@@ -46,10 +44,9 @@ func TestGetSSNodeInfo(t *testing.T) {
 
 func TestGetTrojanNodeInfo(t *testing.T) {
 	apiConfig := &api.Config{
-		APIHost:  "http://127.0.0.1:667",
-		Key:      "123",
-		NodeID:   72,
-		NodeType: "Trojan",
+		APIHost: "http://127.0.0.1:667",
+		Key:     "123",
+		NodeID:  72,
 	}
 	client := sspanel.New(apiConfig)
 	nodeInfo, err := client.GetNodeInfo()

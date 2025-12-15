@@ -20,10 +20,10 @@ var _ service.Service = (*Hysteria2Service)(nil)
 
 // New creates a new Hysteria2 service bound to a SSPanel node.
 func New(apiClient api.API, cfg *controller.Config) *Hysteria2Service {
+	clientInfo := apiClient.Describe()
 	logger := log.NewEntry(log.StandardLogger()).WithFields(log.Fields{
-		"Host": apiClient.Describe().APIHost,
-		"Type": apiClient.Describe().NodeType,
-		"ID":   apiClient.Describe().NodeID,
+		"Host": clientInfo.APIHost,
+		"ID":   clientInfo.NodeID,
 	})
 	return &Hysteria2Service{
 		apiClient:  apiClient,

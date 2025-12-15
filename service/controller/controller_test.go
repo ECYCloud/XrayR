@@ -58,10 +58,9 @@ func TestController(t *testing.T) {
 		CertConfig:     certConfig,
 	}
 	apiConfig := &api.Config{
-		APIHost:  "http://127.0.0.1:667",
-		Key:      "123",
-		NodeID:   41,
-		NodeType: "Vmess",
+		APIHost: "http://127.0.0.1:667",
+		Key:     "123",
+		NodeID:  41,
 	}
 	apiClient := sspanel.New(apiConfig)
 	c := New(server, apiClient, controlerConfig, "SSPanel")

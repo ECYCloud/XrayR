@@ -23,7 +23,6 @@ type Config struct {
 	APIHost             string  `mapstructure:"ApiHost"`
 	NodeID              int     `mapstructure:"NodeID"`
 	Key                 string  `mapstructure:"ApiKey"`
-	NodeType            string  `mapstructure:"NodeType"`
 	Timeout             int     `mapstructure:"Timeout"`
 	SpeedLimit          float64 `mapstructure:"SpeedLimit"`
 	DeviceLimit         int     `mapstructure:"DeviceLimit"`
@@ -142,10 +141,9 @@ type UserTraffic struct {
 }
 
 type ClientInfo struct {
-	APIHost  string
-	NodeID   int
-	Key      string
-	NodeType string
+	APIHost string
+	NodeID  int
+	Key     string
 }
 
 type DetectRule struct {

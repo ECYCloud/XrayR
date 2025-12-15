@@ -32,7 +32,6 @@ type APIClient struct {
 	APIHost             string
 	NodeID              int
 	Key                 string
-	NodeType            string
 	SpeedLimit          float64
 	DeviceLimit         int
 	DisableCustomConfig bool
@@ -43,36 +42,33 @@ type APIClient struct {
 	eTags               map[string]string
 }
 
-// normalizeNodeType canonicalizes NodeType values from configuration so that
-// different spellings such as "VLESS" / "vless" or "hysteria2" are mapped to
-// the internally used forms. This keeps the rest of the code simple and also
-// makes NodeType handling effectively case-insensitive for supported types.
-func normalizeNodeType(t string) string {
-	s := strings.TrimSpace(t)
-	sLower := strings.ToLower(s)
-	switch sLower {
-	case "vmess":
-		// Canonical VMess controller type. Internally we只保留 "Vmess" 这一种写法。
-		return "Vmess"
-	case "vless":
-		// Canonical VLESS controller type. Internally统一使用 "VLESS" 作为 NodeType。
-		return "VLESS"
-	case "shadowsocks":
+// mapSortToNodeType
+//
+//	0/1 -> Shadowsocks
+//	2   -> VLESS
+//	11  -> Vmess
+//	14  -> Trojan
+//	15  -> Hysteria2
+//	16  -> AnyTLS
+//	17  -> Tuic
+func mapSortToNodeType(sort int) string {
+	switch sort {
+	case 0, 1:
 		return "Shadowsocks"
-	case "shadowsocks-plugin", "shadowsocks_plugin":
-		return "Shadowsocks-Plugin"
-	case "trojan":
+	case 2:
+		return "VLESS"
+	case 11:
+		return "Vmess"
+	case 14:
 		return "Trojan"
-	case "hysteria2", "hysteria":
+	case 15:
 		return "Hysteria2"
-	case "anytls":
+	case 16:
 		return "AnyTLS"
-	case "tuic":
+	case 17:
 		return "Tuic"
 	default:
-		// For unknown types, keep the original value so that errors are
-		// reported with the exact string from configuration.
-		return s
+		return ""
 	}
 }
 
@@ -108,7 +104,6 @@ func New(apiConfig *api.Config) *APIClient {
 		NodeID:              apiConfig.NodeID,
 		Key:                 apiConfig.Key,
 		APIHost:             apiConfig.APIHost,
-		NodeType:            normalizeNodeType(apiConfig.NodeType),
 		SpeedLimit:          apiConfig.SpeedLimit,
 		DeviceLimit:         apiConfig.DeviceLimit,
 		LocalRuleList:       localRuleList,
@@ -158,7 +153,7 @@ func readLocalRuleList(path string) (LocalRuleList []api.DetectRule) {
 
 // Describe return a description of the client
 func (c *APIClient) Describe() api.ClientInfo {
-	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key, NodeType: c.NodeType}
+	return api.ClientInfo{APIHost: c.APIHost, NodeID: c.NodeID, Key: c.Key}
 }
 
 // Debug set the client debug for client
@@ -228,7 +223,12 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 			log.Print("The panel version is expired, it is recommended to update immediately")
 		}
 
-		switch c.NodeType {
+		legacyNodeType := mapSortToNodeType(nodeInfoResponse.Sort)
+		if legacyNodeType == "" {
+			return nil, fmt.Errorf("unsupported node sort: %d", nodeInfoResponse.Sort)
+		}
+
+		switch legacyNodeType {
 		case "Vmess":
 			nodeInfo, err = c.ParseVmessNodeResponse(nodeInfoResponse)
 		case "Trojan":
@@ -238,7 +238,7 @@ func (c *APIClient) GetNodeInfo() (nodeInfo *api.NodeInfo, err error) {
 		case "Shadowsocks-Plugin":
 			nodeInfo, err = c.ParseSSPluginNodeResponse(nodeInfoResponse)
 		default:
-			return nil, fmt.Errorf("unsupported Node type: %s", c.NodeType)
+			return nil, fmt.Errorf("unsupported Node type for legacy mode: %s", legacyNodeType)
 		}
 	} else {
 		nodeInfo, err = c.ParseSSPanelNodeInfo(nodeInfoResponse)
@@ -511,7 +511,7 @@ func (c *APIClient) ParseVmessNodeResponse(nodeInfoResponse *NodeInfoResponse) (
 
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
-		NodeType:          c.NodeType,
+		NodeType:          "Vmess",
 		NodeID:            c.NodeID,
 		Port:              port,
 		SpeedLimit:        speedLimit,
@@ -563,7 +563,7 @@ func (c *APIClient) ParseSSNodeResponse(nodeInfoResponse *NodeInfoResponse) (*ap
 	}
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
-		NodeType:          c.NodeType,
+		NodeType:          "Shadowsocks",
 		NodeID:            c.NodeID,
 		Port:              port,
 		SpeedLimit:        speedLimit,
@@ -626,7 +626,7 @@ func (c *APIClient) ParseSSPluginNodeResponse(nodeInfoResponse *NodeInfoResponse
 
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
-		NodeType:          c.NodeType,
+		NodeType:          "Trojan",
 		NodeID:            c.NodeID,
 		Port:              port,
 		SpeedLimit:        speedLimit,
@@ -697,7 +697,7 @@ func (c *APIClient) ParseTrojanNodeResponse(nodeInfoResponse *NodeInfoResponse) 
 	}
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
-		NodeType:          c.NodeType,
+		NodeType:          "Shadowsocks-Plugin",
 		NodeID:            c.NodeID,
 		Port:              port,
 		SpeedLimit:        speedLimit,
@@ -774,6 +774,12 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 		transportProtocol string
 	)
 
+	// NodeTypesort
+	effectiveNodeType := mapSortToNodeType(nodeInfoResponse.Sort)
+	if effectiveNodeType == "" {
+		return nil, fmt.Errorf("unsupported node sort: %d", nodeInfoResponse.Sort)
+	}
+
 	// Check if custom_config is null
 	if len(nodeInfoResponse.CustomConfig) == 0 {
 		return nil, errors.New("custom_config is empty, disable custom config")
@@ -798,7 +804,7 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 
 	port := uint32(parsedPort)
 
-	switch c.NodeType {
+	switch effectiveNodeType {
 	case "Shadowsocks":
 		transportProtocol = "tcp"
 	case "Vmess":
@@ -846,7 +852,7 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	// 这里为常见协议类型填充一个安全的默认值，避免因为空字符串导致
 	// InboundBuilder 中的 TransportProtocol.Build() 直接 panic。
 	if transportProtocol == "" {
-		switch c.NodeType {
+		switch effectiveNodeType {
 		case "Vmess", "VLESS", "Shadowsocks", "Trojan", "AnyTLS":
 			transportProtocol = "tcp"
 		case "Hysteria2", "Tuic":
@@ -858,9 +864,14 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	realityConfig := new(api.REALITYConfig)
 	if nodeConfig.RealityOpts != nil {
 		r := nodeConfig.RealityOpts
+		// ProxyProtocolVer SSPanel reality-opts.proxy_protocol_ver
+		proxyVer := r.ProxyProtocolVer
+		if proxyVer == 0 {
+			proxyVer = nodeConfig.ProxyProtocolVer
+		}
 		realityConfig = &api.REALITYConfig{
 			Dest:             r.Dest,
-			ProxyProtocolVer: r.ProxyProtocolVer,
+			ProxyProtocolVer: proxyVer,
 			ServerNames:      r.ServerNames,
 			PrivateKey:       r.PrivateKey,
 			MinClientVer:     r.MinClientVer,
@@ -883,27 +894,29 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 
 	// Create GeneralNodeInfo
 	nodeInfo := &api.NodeInfo{
-		NodeType:          c.NodeType,
-		NodeID:            c.NodeID,
-		Port:              port,
-		SpeedLimit:        speedLimit,
-		AlterID:           alterID,
-		TransportProtocol: transportProtocol,
-		Host:              nodeConfig.Host,
-		Path:              nodeConfig.Path,
-		SNI:               sni,
-		EnableTLS:         enableTLS,
-		VlessFlow:         nodeConfig.Flow,
-		CypherMethod:      nodeConfig.Method,
-		ServerKey:         nodeConfig.ServerKey,
-		ServiceName:       nodeConfig.Servicename,
-		Header:            nodeConfig.Header,
-		EnableREALITY:     nodeConfig.EnableREALITY,
-		REALITYConfig:     realityConfig,
+		NodeType:            effectiveNodeType,
+		NodeID:              c.NodeID,
+		Port:                port,
+		SpeedLimit:          speedLimit,
+		AlterID:             alterID,
+		TransportProtocol:   transportProtocol,
+		Host:                nodeConfig.Host,
+		Path:                nodeConfig.Path,
+		SNI:                 sni,
+		EnableTLS:           enableTLS,
+		VlessFlow:           nodeConfig.Flow,
+		CypherMethod:        nodeConfig.Method,
+		ServerKey:           nodeConfig.ServerKey,
+		ServiceName:         nodeConfig.Servicename,
+		Header:              nodeConfig.Header,
+		EnableREALITY:       nodeConfig.EnableREALITY,
+		REALITYConfig:       realityConfig,
+		AcceptProxyProtocol: nodeConfig.EnableProxyProtocol,
+		ProxyProtocolVer:    nodeConfig.ProxyProtocolVer,
 	}
 
 	// Attach Hysteria2-specific configuration when needed
-	if c.NodeType == "Hysteria2" {
+	if effectiveNodeType == "Hysteria2" {
 		// up_mbps / down_mbps may be provided as strings in custom_config
 		// 未配置或配置为非正数时，视为不限速（0 表示不在服务器侧强制带宽上限）
 		up := 0
@@ -946,14 +959,14 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	}
 
 	// Attach AnyTLS-specific configuration when needed
-	if c.NodeType == "AnyTLS" {
+	if effectiveNodeType == "AnyTLS" {
 		nodeInfo.AnyTLSConfig = &api.AnyTLSConfig{
 			PaddingScheme: nodeConfig.PaddingScheme,
 		}
 	}
 
 	// Attach TUIC-specific configuration when needed
-	if c.NodeType == "Tuic" {
+	if effectiveNodeType == "Tuic" {
 		// Parse heartbeat interval
 		heartbeat := 10 // default 10 seconds
 		if nodeConfig.Heartbeat != "" {

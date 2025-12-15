@@ -57,10 +57,10 @@ type periodicTask struct {
 
 // New return a Controller service with default parameters.
 func New(server *core.Instance, api api.API, config *Config, panelType string) *Controller {
+	clientInfo := api.Describe()
 	logger := log.NewEntry(log.StandardLogger()).WithFields(log.Fields{
-		"Host": api.Describe().APIHost,
-		"Type": api.Describe().NodeType,
-		"ID":   api.Describe().NodeID,
+		"Host": clientInfo.APIHost,
+		"ID":   clientInfo.NodeID,
 	})
 	// Try to get custom dispatcher; tests may not register it, so provide a safe fallback.
 	var md *mydispatcher.DefaultDispatcher

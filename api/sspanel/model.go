@@ -55,6 +55,15 @@ type CustomConfig struct {
 	UDPRelayMode      string `json:"udp_relay_mode"`
 	ZeroRTTHandshake  string `json:"zero_rtt_handshake"` // "0" or "1" from SSPanel
 	Heartbeat         string `json:"heartbeat"`
+
+	// EnableProxyProtocol / ProxyProtocolVer
+	//
+	// 这两个字段用于在面板中为每个节点单独控制 Proxy Protocol：
+	// - enable_proxy_protocol: 是否在该节点上启用 PROXY protocol 支持；
+	// - proxy_protocol_ver:    使用的 PROXY 协议版本，通常为 1 或 2；为 0 或未设置时
+	//                          表示由后端选择默认行为或不启用版本特性。
+	EnableProxyProtocol bool   `json:"enable_proxy_protocol"`
+	ProxyProtocolVer    uint64 `json:"proxy_protocol_ver"`
 }
 
 // UserResponse is the response of user
