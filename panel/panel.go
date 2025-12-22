@@ -191,6 +191,32 @@ func (p *Panel) Start() {
 		var svc service.Service
 		var nodeInfo *api.NodeInfo
 
+		// If controller TLS certificates are enabled for this node and the
+		// panel exposes global XrayR cert settings, merge Provider/Email/
+		// DNSEnv from the panel so that Cloudflare DNS credentials and
+		// ACME account email are centrally managed.
+		if nodeConfig.PanelType == "SSPanel" && controllerConfig.CertConfig != nil {
+			panelCert, err := apiClient.GetXrayRCertConfig()
+			if err != nil {
+				log.Warnf("Failed to get XrayR cert config from panel: %v", err)
+			} else if panelCert != nil {
+				if panelCert.Provider != "" {
+					controllerConfig.CertConfig.Provider = panelCert.Provider
+				}
+				if panelCert.Email != "" {
+					controllerConfig.CertConfig.Email = panelCert.Email
+				}
+				if len(panelCert.DNSEnv) > 0 {
+					if controllerConfig.CertConfig.DNSEnv == nil {
+						controllerConfig.CertConfig.DNSEnv = make(map[string]string)
+					}
+					for k, v := range panelCert.DNSEnv {
+						controllerConfig.CertConfig.DNSEnv[k] = v
+					}
+				}
+			}
+		}
+
 		// Hysteria2 and AnyTLS are implemented as independent services and
 		// currently only supported for SSPanel.
 		if nodeConfig.PanelType == "SSPanel" {

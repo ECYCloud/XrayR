@@ -88,6 +88,15 @@ type NodeInfo struct {
 	TuicConfig       *TuicConfig
 }
 
+// XrayRCertConfig describes the certificate-related configuration
+// that XrayR can load from the panel (e.g. Cloudflare DNS provider
+// and its environment variables for lego/ACME).
+type XrayRCertConfig struct {
+	Provider string            `json:"provider"`
+	Email    string            `json:"email"`
+	DNSEnv   map[string]string `json:"dns_env"`
+}
+
 type Hysteria2Config struct {
 	Obfs                  string
 	ObfsPassword          string

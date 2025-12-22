@@ -6,6 +6,10 @@ package api
 // API is the interface for different panel's api.
 type API interface {
 	GetNodeInfo() (nodeInfo *NodeInfo, err error)
+	// GetXrayRCertConfig returns optional global XrayR certificate
+	// configuration provided by the panel (for example, Cloudflare
+	// DNS provider and its DNS-01 environment variables).
+	GetXrayRCertConfig() (certConfig *XrayRCertConfig, err error)
 	GetUserList() (userList *[]UserInfo, err error)
 	ReportNodeStatus(nodeStatus *NodeStatus) (err error)
 	ReportNodeOnlineUsers(onlineUser *[]OnlineUser) (err error)
