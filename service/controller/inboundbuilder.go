@@ -218,7 +218,11 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		}
 	}
 
-	if !isREALITY && nodeInfo.EnableTLS && config.CertConfig.CertMode != "none" {
+	// Only build TLS settings when TLS is enabled, REALITY is not used, and
+	// a non-nil certificate configuration is available. Older configs might
+	// omit CertConfig entirely, in which case we should gracefully skip TLS
+	// here instead of panicking on a nil pointer.
+	if !isREALITY && nodeInfo.EnableTLS && config.CertConfig != nil && config.CertConfig.CertMode != "none" {
 		streamSetting.Security = "tls"
 		certFile, keyFile, err := getCertFile(config.CertConfig)
 		if err != nil {

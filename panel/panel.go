@@ -19,6 +19,7 @@ import (
 	"github.com/ECYCloud/XrayR/api/sspanel"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
+	"github.com/ECYCloud/XrayR/common/mylego"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/anytls"
 	"github.com/ECYCloud/XrayR/service/controller"
@@ -191,15 +192,18 @@ func (p *Panel) Start() {
 		var svc service.Service
 		var nodeInfo *api.NodeInfo
 
-		// If controller TLS certificates are enabled for this node and the
-		// panel exposes global XrayR cert settings, merge Provider/Email/
-		// DNSEnv from the panel so that Cloudflare DNS credentials and
-		// ACME account email are centrally managed.
-		if nodeConfig.PanelType == "SSPanel" && controllerConfig.CertConfig != nil {
+		// If the panel exposes global XrayR cert settings, merge Provider/Email/
+		// DNSEnv into the controller's CertConfig. When CertConfig is missing
+		// from config.yml (which is common now that certificate settings are
+		// managed from the panel), allocate a minimal struct on demand.
+		if nodeConfig.PanelType == "SSPanel" {
 			panelCert, err := apiClient.GetXrayRCertConfig()
 			if err != nil {
 				log.Warnf("Failed to get XrayR cert config from panel: %v", err)
 			} else if panelCert != nil {
+				if controllerConfig.CertConfig == nil {
+					controllerConfig.CertConfig = &mylego.CertConfig{}
+				}
 				if panelCert.Provider != "" {
 					controllerConfig.CertConfig.Provider = panelCert.Provider
 				}
@@ -229,7 +233,17 @@ func (p *Panel) Start() {
 			// Derive per-node certificate configuration from panel SNI / Host
 			// when TLS is enabled and REALITY is not in use. This allows using
 			// different certificates per node without duplicating config.yml.
-			if nodeInfo != nil && controllerConfig.CertConfig != nil && nodeInfo.EnableTLS && !nodeInfo.EnableREALITY {
+			if nodeInfo != nil && nodeInfo.EnableTLS && !nodeInfo.EnableREALITY {
+				// When CertConfig is still nil (for example when completely
+				// omitted from config.yml), create a default DNS-01 based
+				// configuration so that certificate details can be managed
+				// from the panel only.
+				if controllerConfig.CertConfig == nil {
+					controllerConfig.CertConfig = &mylego.CertConfig{
+						CertMode: "dns",
+					}
+				}
+
 				sni := nodeInfo.SNI
 				if sni == "" {
 					// Fallback to Host when SNI is not explicitly provided
