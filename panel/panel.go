@@ -188,6 +188,12 @@ func (p *Panel) Start() {
 				log.Panicf("Read Controller Config Failed")
 			}
 		}
+		// 证书相关配置改为完全由面板下发和自动推导，不再支持通过
+		// config.yml 的 ControllerConfig.CertConfig 手动填写。为避免旧
+		// 配置产生干扰，这里直接丢弃来自本地配置文件的 CertConfig。
+		if nodeConfig.PanelType == "SSPanel" {
+			controllerConfig.CertConfig = nil
+		}
 
 		var svc service.Service
 		var nodeInfo *api.NodeInfo
@@ -195,7 +201,8 @@ func (p *Panel) Start() {
 		// If the panel exposes global XrayR cert settings, merge Provider/Email/
 		// DNSEnv into the controller's CertConfig. When CertConfig is missing
 		// from config.yml (which is common now that certificate settings are
-		// managed from the panel), allocate a minimal struct on demand.
+		// managed from the panel), allocate a minimal struct on demand and
+		// default CertMode to "dns" so that TLS nodes work out-of-the-box.
 		if nodeConfig.PanelType == "SSPanel" {
 			panelCert, err := apiClient.GetXrayRCertConfig()
 			if err != nil {
@@ -203,6 +210,12 @@ func (p *Panel) Start() {
 			} else if panelCert != nil {
 				if controllerConfig.CertConfig == nil {
 					controllerConfig.CertConfig = &mylego.CertConfig{}
+				}
+				// panel 仅下发 Provider/Email/DNSEnv，不关心 CertMode，若此时
+				// 仍为空则默认使用 DNS-01 ACME（"dns"），避免后续出现
+				// "unsupported certmode: " 之类错误。
+				if controllerConfig.CertConfig.CertMode == "" {
+					controllerConfig.CertConfig.CertMode = "dns"
 				}
 				if panelCert.Provider != "" {
 					controllerConfig.CertConfig.Provider = panelCert.Provider
@@ -234,14 +247,14 @@ func (p *Panel) Start() {
 			// when TLS is enabled and REALITY is not in use. This allows using
 			// different certificates per node without duplicating config.yml.
 			if nodeInfo != nil && nodeInfo.EnableTLS && !nodeInfo.EnableREALITY {
-				// When CertConfig is still nil (for example when completely
-				// omitted from config.yml), create a default DNS-01 based
-				// configuration so that certificate details can be managed
-				// from the panel only.
+				// When CertConfig is missing, create one; if CertMode is still
+				// empty at this point, default it to dns so that DNS-01 ACME is
+				// used by default for TLS nodes.
 				if controllerConfig.CertConfig == nil {
-					controllerConfig.CertConfig = &mylego.CertConfig{
-						CertMode: "dns",
-					}
+					controllerConfig.CertConfig = &mylego.CertConfig{}
+				}
+				if controllerConfig.CertConfig.CertMode == "" {
+					controllerConfig.CertConfig.CertMode = "dns"
 				}
 
 				sni := nodeInfo.SNI

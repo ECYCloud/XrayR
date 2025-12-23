@@ -648,7 +648,11 @@ func (c *Controller) buildNodeTag() string {
 
 // Check Cert
 func (c *Controller) certMonitor() error {
-	// 仅当当前节点启用 TLS 且未启用 REALITY 时才进行证书监控
+	// 仅当当前节点启用 TLS 且未启用 REALITY 时才进行证书监控。
+	// 对于未设置 CertConfig 的旧配置，直接跳过证书监控以避免空指针。
+	if c.config == nil || c.config.CertConfig == nil {
+		return nil
+	}
 	if c.nodeInfo.EnableTLS && !c.nodeInfo.EnableREALITY {
 		switch c.config.CertConfig.CertMode {
 		case "dns", "http", "tls":
