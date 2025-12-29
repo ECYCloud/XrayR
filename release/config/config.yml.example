@@ -43,14 +43,14 @@ Nodes:
         RedisDB: 0 # Redis DB
         Timeout: 5 # Timeout for redis request
         Expiry: 60 # Expiry time (second)
-	      EnableFallback: false # Only support for Trojan and Vless
-	      FallBackConfigs:  # Support multiple fallbacks
-	        - SNI: # TLS SNI(Server Name Indication), Empty for any
-	          Alpn: # Alpn, Empty for any
-	          Path: # HTTP PATH, Empty for any
-	          Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
-	          ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
-	      # CertConfig is managed by panel and not configured here.
+      EnableFallback: false # Only support for Trojan and Vless
+      FallBackConfigs:  # Support multiple fallbacks
+        - SNI: # TLS SNI(Server Name Indication), Empty for any
+          Alpn: # Alpn, Empty for any
+          Path: # HTTP PATH, Empty for any
+          Dest: 80 # Required, Destination of fallback, check https://xtls.github.io/config/features/fallback.html for details.
+          ProxyProtocolVer: 0 # Send PROXY protocol version, 0 for disable
+      # CertConfig is managed by panel and not configured here.
 
 	    #  - PanelType: "SSPanel" # Panel type: SSPanel
 	    #    ApiConfig:
