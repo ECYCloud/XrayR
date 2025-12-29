@@ -82,31 +82,47 @@ func run() error {
 		return fmt.Errorf("Parse config file %v failed: %s \n", cfgFile, err)
 	}
 
-	if panelConfig.LogConfig.Level == "debug" {
+	if panelConfig.LogConfig != nil && panelConfig.LogConfig.Level == "debug" {
 		log.SetReportCaller(true)
 	}
 
+	// Create initial panel instance.
 	p := panel.New(panelConfig)
 	lastTime := time.Now()
+
 	config.OnConfigChange(func(e fsnotify.Event) {
 		// Discarding event received within a short period of time after receiving an event.
-		if time.Now().After(lastTime.Add(3 * time.Second)) {
-			// Hot reload function
-			fmt.Println("Config file changed:", e.Name)
-			p.Close()
-			// Delete old instance and trigger GC
-			runtime.GC()
-			if err := config.Unmarshal(panelConfig); err != nil {
-				log.Panicf("Parse config file %v failed: %s \n", cfgFile, err)
-			}
-
-			if panelConfig.LogConfig.Level == "debug" {
-				log.SetReportCaller(true)
-			}
-
-			p.Start()
-			lastTime = time.Now()
+		if !time.Now().After(lastTime.Add(3 * time.Second)) {
+			return
 		}
+
+		// Hot reload function
+		fmt.Println("Config file changed:", e.Name)
+		p.Close()
+		// Delete old instance and trigger GC
+		runtime.GC()
+
+		// Always load config into a *fresh* struct so any in-memory mutations
+		// (such as NodesConfig being expanded by Panel.expandNodesConfig) do not
+		// leak across reloads. This ensures that changes to ApiConfig.NodeID
+		// take full effect on hot reload.
+		newPanelConfig := &panel.Config{}
+		if err := config.Unmarshal(newPanelConfig); err != nil {
+			log.Panicf("Parse config file %v failed: %s \n", cfgFile, err)
+		}
+
+		if newPanelConfig.LogConfig != nil && newPanelConfig.LogConfig.Level == "debug" {
+			log.SetReportCaller(true)
+		} else {
+			log.SetReportCaller(false)
+		}
+
+		// Swap to the new config and panel instance.
+		panelConfig = newPanelConfig
+		p = panel.New(panelConfig)
+
+		p.Start()
+		lastTime = time.Now()
 	})
 
 	p.Start()
