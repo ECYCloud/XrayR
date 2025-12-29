@@ -20,8 +20,15 @@ const (
 // XrayR 配置不一致带来的混乱，因此这里不再包含任何与 VLESS 开关相关
 // 的字段。
 type Config struct {
-	APIHost             string  `mapstructure:"ApiHost"`
-	NodeID              int     `mapstructure:"NodeID"`
+	APIHost string `mapstructure:"ApiHost"`
+	// NodeID 支持单个或多个节点 ID：
+	//   NodeID: 41
+	//   NodeID: "41,42,43"
+	//
+	// 当 NodeID 为空字符串时，视为未配置；
+	// 当仅为数字时表示单个节点；当包含逗号时会在 Panel.expandNodesConfig
+	// 中被拆分为多个逻辑节点，每个逻辑节点拥有独立的 NodeID。
+	NodeID              string  `mapstructure:"NodeID"`
 	Key                 string  `mapstructure:"ApiKey"`
 	Timeout             int     `mapstructure:"Timeout"`
 	SpeedLimit          float64 `mapstructure:"SpeedLimit"`

@@ -3,6 +3,8 @@ package panel
 import (
 	"encoding/json"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"dario.cat/mergo"
@@ -39,6 +41,99 @@ type Panel struct {
 func New(panelConfig *Config) *Panel {
 	p := &Panel{panelConfig: panelConfig}
 	return p
+}
+
+// expandNodesConfig 将单条 Nodes 配置中声明的多个 NodeID 表达式展开为多个逻辑节点。
+// 这样用户可以在同一份 ApiConfig/ControllerConfig 下，通过 NodeID: "41,42,43"
+// 一次性启动多个面板节点，避免复制大段重复配置。
+func (p *Panel) expandNodesConfig() {
+	if p.panelConfig == nil || len(p.panelConfig.NodesConfig) == 0 {
+		return
+	}
+
+	expanded := make([]*NodesConfig, 0, len(p.panelConfig.NodesConfig))
+	for _, nodeConfig := range p.panelConfig.NodesConfig {
+		// 保持对空指针的兼容处理
+		if nodeConfig == nil || nodeConfig.ApiConfig == nil {
+			expanded = append(expanded, nodeConfig)
+			continue
+		}
+
+		apiCfg := nodeConfig.ApiConfig
+
+		// 从 NodeID 表达式中解析出所有有效的节点 ID：
+		//   NodeID: 41
+		//   NodeID: "41,42,43"
+		//
+		// 对于值为 "0" 的情况（面板端按 IP 自动匹配节点），不做展开，保持原始配置。
+		ids := parseNodeIDExpr(apiCfg.NodeID)
+
+		// 如果最终没有合法的 NodeID，则保持原行为，后续逻辑会按之前的方式报错/处理。
+		// 包括：
+		//   - NodeID 为空字符串；
+		//   - NodeID 为 "0"（自动按 IP 匹配节点）；
+		//   - NodeID 中所有条目都无法解析为合法整数。
+		if len(ids) == 0 {
+			expanded = append(expanded, nodeConfig)
+			continue
+		}
+
+		// 为每一个 NodeID 复制一份节点配置，共享 ControllerConfig
+		for _, id := range ids {
+			ncCopy := *nodeConfig             // 结构体浅拷贝
+			apiCopy := *apiCfg                // ApiConfig 浅拷贝
+			apiCopy.NodeID = strconv.Itoa(id) // 为该实例设置独立的 NodeID 字符串
+			ncCopy.ApiConfig = &apiCopy
+			expanded = append(expanded, &ncCopy)
+		}
+	}
+
+	p.panelConfig.NodesConfig = expanded
+}
+
+// parseNodeIDExpr 解析 NodeID 字段中的表达式，返回去重后的正整数 ID 列表。
+//
+// 支持以下形式：
+//
+//	NodeID: 41
+//	NodeID: "41,42,43"
+//
+// 返回值仅包含 > 0 的整数；解析失败或为空时返回 nil。
+// 特殊地，当 NodeID 为 "0" 时，视为按 IP 自动匹配节点的旧行为，本函数也返回 nil，
+// 以便上层逻辑保持原始配置而不做展开。
+func parseNodeIDExpr(expr string) []int {
+	expr = strings.TrimSpace(expr)
+	if expr == "" || expr == "0" {
+		return nil
+	}
+
+	parts := strings.Split(expr, ",")
+	ids := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.Atoi(part)
+		if err != nil || id <= 0 {
+			continue
+		}
+		// 去重
+		exists := false
+		for _, existing := range ids {
+			if existing == id {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	return ids
 }
 
 func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
@@ -163,6 +258,9 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 func (p *Panel) Start() {
 	p.access.Lock()
 	defer p.access.Unlock()
+
+	// 在启动之前先展开可能包含多个 NodeID 的节点配置
+	p.expandNodesConfig()
 	log.Print("Start the panel..")
 	// Load Core
 	server := p.loadCore(p.panelConfig)

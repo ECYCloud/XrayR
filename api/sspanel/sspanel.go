@@ -99,9 +99,22 @@ func New(apiConfig *api.Config) *APIClient {
 	// Read local rule list
 	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
 
+	// Parse NodeID from configuration. Panel.expandNodesConfig has already
+	// expanded any multi-node expression into separate logical nodes, so each
+	// ApiConfig here should contain at most one logical NodeID.
+	nodeIDStr := strings.TrimSpace(apiConfig.NodeID)
+	nodeID := 0
+	if nodeIDStr != "" {
+		if id, err := strconv.Atoi(nodeIDStr); err == nil {
+			nodeID = id
+		} else {
+			log.Warnf("invalid NodeID %q in ApiConfig, fallback to 0", apiConfig.NodeID)
+		}
+	}
+
 	return &APIClient{
 		client:              client,
-		NodeID:              apiConfig.NodeID,
+		NodeID:              nodeID,
 		Key:                 apiConfig.Key,
 		APIHost:             apiConfig.APIHost,
 		SpeedLimit:          apiConfig.SpeedLimit,

@@ -60,7 +60,7 @@ func TestController(t *testing.T) {
 	apiConfig := &api.Config{
 		APIHost: "http://127.0.0.1:667",
 		Key:     "123",
-		NodeID:  41,
+		NodeID:  "41",
 	}
 	apiClient := sspanel.New(apiConfig)
 	c := New(server, apiClient, controlerConfig, "SSPanel")

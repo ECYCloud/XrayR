@@ -12,7 +12,7 @@ func CreateClient() api.API {
 	apiConfig := &api.Config{
 		APIHost: "http://127.0.0.1:667",
 		Key:     "123",
-		NodeID:  3,
+		NodeID:  "3",
 	}
 	client := sspanel.New(apiConfig)
 	return client
@@ -32,7 +32,7 @@ func TestGetSSNodeInfo(t *testing.T) {
 	apiConfig := &api.Config{
 		APIHost: "http://127.0.0.1:667",
 		Key:     "123",
-		NodeID:  64,
+		NodeID:  "64",
 	}
 	client := sspanel.New(apiConfig)
 	nodeInfo, err := client.GetNodeInfo()
@@ -46,7 +46,7 @@ func TestGetTrojanNodeInfo(t *testing.T) {
 	apiConfig := &api.Config{
 		APIHost: "http://127.0.0.1:667",
 		Key:     "123",
-		NodeID:  72,
+		NodeID:  "72",
 	}
 	client := sspanel.New(apiConfig)
 	nodeInfo, err := client.GetNodeInfo()
