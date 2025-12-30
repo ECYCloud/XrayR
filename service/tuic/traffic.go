@@ -146,10 +146,11 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 	return true
 }
 
-func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser) {
+func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[string]userTraffic) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	snapshot := make(map[string]userTraffic)
 	var uts []api.UserTraffic
 	for uuid, t := range s.traffic {
 		user, ok := s.users[uuid]
@@ -158,6 +159,10 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser) {
 		}
 		if t.Upload == 0 && t.Download == 0 {
 			continue
+		}
+		snapshot[uuid] = userTraffic{
+			Upload:   t.Upload,
+			Download: t.Download,
 		}
 		uts = append(uts, api.UserTraffic{
 			UID:      user.UID,
@@ -180,7 +185,26 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser) {
 		}
 	}
 
-	return uts, online
+	return uts, online, snapshot
+}
+
+func (s *TuicService) restoreTraffic(snapshot map[string]userTraffic) {
+	if len(snapshot) == 0 {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for uuid, snap := range snapshot {
+		counter, ok := s.traffic[uuid]
+		if !ok || counter == nil {
+			counter = &userTraffic{}
+			s.traffic[uuid] = counter
+		}
+		counter.Upload += snap.Upload
+		counter.Download += snap.Download
+	}
 }
 
 func (s *TuicService) userMonitor() error {
@@ -224,10 +248,12 @@ func (s *TuicService) userMonitor() error {
 		}
 	}
 
-	userTraffic, onlineUsers := s.collectUsage()
+	userTraffic, onlineUsers, snapshot := s.collectUsage()
 	if len(userTraffic) > 0 && !s.config.DisableUploadTraffic {
 		if err = s.apiClient.ReportUserTraffic(&userTraffic); err != nil {
 			s.logger.Print(err)
+			// Restore counters so traffic is not lost and can be retried.
+			s.restoreTraffic(snapshot)
 		}
 	}
 	if len(onlineUsers) > 0 {
