@@ -263,9 +263,21 @@ func (p *Panel) Start() {
 	p.access.Lock()
 	defer p.access.Unlock()
 
+	// 先记录一次从配置文件反序列化得到的原始节点列表，方便排查热重载
+	// 时 Nodes 为空或结构异常的问题。
+	rawNodes := p.panelConfig.NodesConfig
+	log.Printf("Start the panel.. (raw nodes = %d)", len(rawNodes))
+	for i, n := range rawNodes {
+		if n == nil || n.ApiConfig == nil {
+			log.Printf("  raw node[%d]: <nil>", i)
+			continue
+		}
+		log.Printf("  raw node[%d]: PanelType=%s, ApiHost=%s, NodeID=%q", i, n.PanelType, n.ApiConfig.APIHost, n.ApiConfig.NodeID)
+	}
+
 	// 在启动之前先展开可能包含多个 NodeID 的节点配置；为了避免修改原始配置，
 	// 这里在本地生成一份展开后的节点列表。
-	nodes := expandNodesConfig(p.panelConfig.NodesConfig)
+	nodes := expandNodesConfig(rawNodes)
 	log.Printf("Start the panel.. (logical nodes = %d)", len(nodes))
 	// Load Core
 	server := p.loadCore(p.panelConfig)

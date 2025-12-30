@@ -98,18 +98,40 @@ func run() error {
 
 		// Hot reload function
 		fmt.Println("Config file changed:", e.Name)
+
+		// 为了避免因为临时写入/语法错误导致的“空配置”把正在运行的服务全部停掉，
+		// 这里先用一个全新的 viper 实例完整读取并解析最新的配置文件，只在解析
+		// 成功且包含有效 Nodes 时才切换面板实例。
+		newPanelConfig := &panel.Config{}
+		newViper := viper.New()
+		if e.Name != "" {
+			newViper.SetConfigFile(e.Name)
+		} else if cfgFile != "" {
+			newViper.SetConfigFile(cfgFile)
+		} else {
+			// 退回到与 getConfig 相同的查找逻辑
+			newViper.SetConfigName("config")
+			newViper.SetConfigType("yml")
+			newViper.AddConfigPath(".")
+		}
+
+		if err := newViper.ReadInConfig(); err != nil {
+			log.Errorf("Hot reload: failed to read new config file %s: %v; keeping existing configuration", e.Name, err)
+			return
+		}
+		if err := newViper.Unmarshal(newPanelConfig); err != nil {
+			log.Errorf("Hot reload: failed to parse new config file %s: %v; keeping existing configuration", e.Name, err)
+			return
+		}
+		if len(newPanelConfig.NodesConfig) == 0 {
+			log.Warnf("Hot reload: new config file %s contains no Nodes; ignoring reload to avoid stopping running services", e.Name)
+			return
+		}
+
+		// 到这里说明新配置已经成功解析，且包含有效的节点；再关闭旧实例并切换。
 		p.Close()
 		// Delete old instance and trigger GC
 		runtime.GC()
-
-		// Always load config into a *fresh* struct so any in-memory mutations
-		// (such as NodesConfig being expanded by Panel.expandNodesConfig) do not
-		// leak across reloads. This ensures that changes to ApiConfig.NodeID
-		// take full effect on hot reload.
-		newPanelConfig := &panel.Config{}
-		if err := config.Unmarshal(newPanelConfig); err != nil {
-			log.Panicf("Parse config file %v failed: %s \n", cfgFile, err)
-		}
 
 		if newPanelConfig.LogConfig != nil && newPanelConfig.LogConfig.Level == "debug" {
 			log.SetReportCaller(true)
