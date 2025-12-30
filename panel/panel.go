@@ -46,13 +46,17 @@ func New(panelConfig *Config) *Panel {
 // expandNodesConfig 将单条 Nodes 配置中声明的多个 NodeID 表达式展开为多个逻辑节点。
 // 这样用户可以在同一份 ApiConfig/ControllerConfig 下，通过 NodeID: "41,42,43"
 // 一次性启动多个面板节点，避免复制大段重复配置。
-func (p *Panel) expandNodesConfig() {
-	if p.panelConfig == nil || len(p.panelConfig.NodesConfig) == 0 {
-		return
+//
+// 注意：该函数是 *纯函数*，不会修改传入的 nodes 切片本身，而是返回一份新的
+// 展开结果。这样可以避免在多次热重载或重复调用 Start 时，对底层配置结构体
+// 进行不可预期的原地修改。
+func expandNodesConfig(nodes []*NodesConfig) []*NodesConfig {
+	if len(nodes) == 0 {
+		return nodes
 	}
 
-	expanded := make([]*NodesConfig, 0, len(p.panelConfig.NodesConfig))
-	for _, nodeConfig := range p.panelConfig.NodesConfig {
+	expanded := make([]*NodesConfig, 0, len(nodes))
+	for _, nodeConfig := range nodes {
 		// 保持对空指针的兼容处理
 		if nodeConfig == nil || nodeConfig.ApiConfig == nil {
 			expanded = append(expanded, nodeConfig)
@@ -88,7 +92,7 @@ func (p *Panel) expandNodesConfig() {
 		}
 	}
 
-	p.panelConfig.NodesConfig = expanded
+	return expanded
 }
 
 // parseNodeIDExpr 解析 NodeID 字段中的表达式，返回去重后的正整数 ID 列表。
@@ -259,9 +263,10 @@ func (p *Panel) Start() {
 	p.access.Lock()
 	defer p.access.Unlock()
 
-	// 在启动之前先展开可能包含多个 NodeID 的节点配置
-	p.expandNodesConfig()
-	log.Print("Start the panel..")
+	// 在启动之前先展开可能包含多个 NodeID 的节点配置；为了避免修改原始配置，
+	// 这里在本地生成一份展开后的节点列表。
+	nodes := expandNodesConfig(p.panelConfig.NodesConfig)
+	log.Printf("Start the panel.. (logical nodes = %d)", len(nodes))
 	// Load Core
 	server := p.loadCore(p.panelConfig)
 	if err := server.Start(); err != nil {
@@ -270,7 +275,7 @@ func (p *Panel) Start() {
 	p.Server = server
 
 	// Load Nodes config
-	for _, nodeConfig := range p.panelConfig.NodesConfig {
+	for _, nodeConfig := range nodes {
 		var apiClient api.API
 		switch nodeConfig.PanelType {
 		case "SSPanel":
@@ -338,7 +343,27 @@ func (p *Panel) Start() {
 			var err error
 			nodeInfo, err = apiClient.GetNodeInfo()
 			if err != nil {
-				log.Panicf("Get node info failed for node: %s", err)
+				// 对于单个节点的拉取失败，不再直接 panic 终止整个进程，而是
+				// 打印错误并跳过该节点，保证其它已正确配置的节点仍然可以正常
+				// 启动和提供服务。
+				apiCfg := nodeConfig.ApiConfig
+				log.Errorf("Get node info failed, skip this node (PanelType=%s, ApiHost=%s, NodeID=%s): %v",
+					nodeConfig.PanelType,
+					func() string {
+						if apiCfg != nil {
+							return apiCfg.APIHost
+						}
+						return ""
+					}(),
+					func() string {
+						if apiCfg != nil {
+							return apiCfg.NodeID
+						}
+						return ""
+					}(),
+					err,
+				)
+				continue
 			}
 
 			// Derive per-node certificate configuration from panel SNI / Host
@@ -421,10 +446,15 @@ func (p *Panel) Start() {
 	}
 
 	// Start all the service
-	for _, s := range p.Service {
-		err := s.Start()
-		if err != nil {
-			log.Panicf("Panel Start failed: %s", err)
+	if len(p.Service) == 0 {
+		log.Warn("No services started for any node; please check your Nodes config and panel connectivity")
+	} else {
+		for _, s := range p.Service {
+			if err := s.Start(); err != nil {
+				// 同样不再因为单个 service 启动失败而直接 panic，避免影响其它
+				// 已经可以正常工作的节点。
+				log.Errorf("Panel Start failed for a service: %s", err)
+			}
 		}
 	}
 	p.Running = true
