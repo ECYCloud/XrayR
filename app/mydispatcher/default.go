@@ -425,41 +425,54 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	inTag := routingLink.GetInboundTag()
 	isPickRoute := 0
 
-	// XrayR: Always prefer the outbound with same tag as inbound to prevent
+	// XrayR: Always use the outbound with same tag as inbound to prevent
 	// cross-protocol routing (e.g., VLESS inbound -> Trojan outbound).
 	// This ensures traffic from a specific node always exits through its own outbound.
-	if h := d.ohm.GetHandler(inTag); h != nil {
-		handler = h
-	} else if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
-		ctx = session.SetForcedOutboundTagToContext(ctx, "")
-		if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
-			isPickRoute = 1
-			errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
+	// If no matching outbound is found, REJECT the connection instead of using default handler.
+	if inTag != "" {
+		if h := d.ohm.GetHandler(inTag); h != nil && h.Tag() == inTag {
 			handler = h
+			isPickRoute = 3 // Mark as matched by inTag
 		} else {
-			errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
+			// CRITICAL: No matching outbound found for this node, reject connection
+			errors.LogError(ctx, "XrayR: FATAL - no outbound found for inTag: ", inTag, ", rejecting connection to prevent cross-protocol routing")
 			common.Close(link.Writer)
 			common.Interrupt(link.Reader)
 			return
 		}
-	} else if d.router != nil {
-		if route, err := d.router.PickRoute(routingLink); err == nil {
-			outTag := route.GetOutboundTag()
-			if h := d.ohm.GetHandler(outTag); h != nil {
-				isPickRoute = 2
-				errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+	} else {
+		// inTag is empty, use normal routing logic
+		if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
+			ctx = session.SetForcedOutboundTagToContext(ctx, "")
+			if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
+				isPickRoute = 1
+				errors.LogInfo(ctx, "taking platform initialized detour [", forcedOutboundTag, "] for [", destination, "]")
 				handler = h
 			} else {
-				errors.LogWarning(ctx, "non existing outTag: ", outTag)
+				errors.LogError(ctx, "non existing tag for platform initialized detour: ", forcedOutboundTag)
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
 			}
-		} else {
-			errors.LogInfo(ctx, "default route for ", destination)
+		} else if d.router != nil {
+			if route, err := d.router.PickRoute(routingLink); err == nil {
+				outTag := route.GetOutboundTag()
+				if h := d.ohm.GetHandler(outTag); h != nil {
+					isPickRoute = 2
+					errors.LogInfo(ctx, "taking detour [", outTag, "] for [", destination, "]")
+					handler = h
+				} else {
+					errors.LogWarning(ctx, "non existing outTag: ", outTag)
+				}
+			} else {
+				errors.LogInfo(ctx, "default route for ", destination)
+			}
 		}
-	}
 
-	// If there is no outbound with tag as same as the inbound tag
-	if handler == nil {
-		handler = d.ohm.GetDefaultHandler()
+		// Only use default handler when inTag is empty
+		if handler == nil {
+			handler = d.ohm.GetDefaultHandler()
+		}
 	}
 
 	if handler == nil {
@@ -477,6 +490,8 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 				accessMessage.Detour = inTag + " ==> " + tag
 			} else if isPickRoute == 2 {
 				accessMessage.Detour = inTag + " -> " + tag
+			} else if isPickRoute == 3 {
+				accessMessage.Detour = inTag + " => " + tag // Matched by inTag (XrayR node-specific outbound)
 			} else {
 				accessMessage.Detour = inTag + " >> " + tag
 			}

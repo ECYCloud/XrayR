@@ -40,6 +40,12 @@ type dataPathWrapper struct {
 	tag string
 }
 
+// Tag returns the outbound tag. This MUST match the inbound tag to ensure
+// correct routing (same NodeID in, same NodeID out).
+func (w *dataPathWrapper) Tag() string {
+	return w.tag
+}
+
 func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	// Force userland path to keep stats/limit in effect
 	if sess := session.InboundFromContext(ctx); sess != nil {
@@ -123,8 +129,9 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
 	// Wrap outbound handler to enforce audit/device limit/rate limit and keep stats path
-	handler = &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
-	if err := c.obm.AddHandler(context.Background(), handler); err != nil {
+	wrapper := &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
+	log.Infof("Adding outbound handler: configTag=%s handlerTag=%s wrapperTag=%s controllerTag=%s", config.Tag, handler.Tag(), wrapper.Tag(), c.Tag)
+	if err := c.obm.AddHandler(context.Background(), wrapper); err != nil {
 		return err
 	}
 	return nil
