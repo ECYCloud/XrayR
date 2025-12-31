@@ -372,6 +372,17 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 	}
 	c.LastReportOnline = reportOnline // Update LastReportOnline
 
+	if len(data) > 0 {
+		first := data[0]
+		log.Printf(
+			"ReportNodeOnlineUsers: node_id=%d online_count=%d example: UID=%d IP=%s",
+			c.NodeID,
+			len(data),
+			first.UID,
+			first.IP,
+		)
+	}
+
 	postData := &PostData{Data: data}
 	path := "/mod_mu/users/aliveip"
 	res, err := c.client.R().
@@ -464,6 +475,18 @@ func (c *APIClient) ReportIllegal(detectResultList *[]api.DetectResult) error {
 			UID: r.UID,
 			IP:  r.IP,
 		}
+	}
+
+	if len(data) > 0 {
+		first := data[0]
+		log.Printf(
+			"ReportIllegal: node_id=%d count=%d example: UID=%d RuleID=%d IP=%s",
+			c.NodeID,
+			len(data),
+			first.UID,
+			first.ID,
+			first.IP,
+		)
 	}
 	postData := &PostData{Data: data}
 	path := "/mod_mu/users/detectlog"

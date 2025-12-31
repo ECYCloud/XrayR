@@ -107,6 +107,18 @@ func (c *Controller) Start() error {
 	c.nodeInfo = newNodeInfo
 	c.Tag = c.buildNodeTag()
 
+	// Log a clear mapping between Tag and NodeID for this controller instance.
+	// This helps diagnose any cross-node mixing issues in multi-node deployments.
+	c.logger.Infof("Controller mapping established: PanelHost=%s ApiClientNodeID=%d NodeInfoNodeID=%d NodeType=%s ListenIP=%s Port=%d Tag=%s",
+		c.clientInfo.APIHost,
+		c.clientInfo.NodeID,
+		c.nodeInfo.NodeID,
+		c.nodeInfo.NodeType,
+		c.config.ListenIP,
+		c.nodeInfo.Port,
+		c.Tag,
+	)
+
 	// Add new tag
 	err = c.addNewTag(newNodeInfo)
 	if err != nil {
@@ -256,6 +268,14 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 			// Add new tag
 			c.nodeInfo = newNodeInfo
 			c.Tag = c.buildNodeTag()
+			c.logger.Infof("Node info changed, rebuild tag: oldTag=%s newTag=%s NodeID=%d NodeType=%s ListenIP=%s Port=%d",
+				oldTag,
+				c.Tag,
+				c.nodeInfo.NodeID,
+				c.nodeInfo.NodeType,
+				c.config.ListenIP,
+				c.nodeInfo.Port,
+			)
 			err = c.addNewTag(newNodeInfo)
 			if err != nil {
 				c.logger.Print(err)
@@ -615,7 +635,15 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d online users", len(*onlineDevice))
+			sample := (*onlineDevice)[0]
+			c.logger.Printf(
+				"Report %d online users (NodeID=%d, Tag=%s); example: UID=%d IP=%s",
+				len(*onlineDevice),
+				c.nodeInfo.NodeID,
+				c.Tag,
+				sample.UID,
+				sample.IP,
+			)
 		}
 	}
 
@@ -626,7 +654,16 @@ func (c *Controller) userInfoMonitor() (err error) {
 		if err = c.apiClient.ReportIllegal(detectResult); err != nil {
 			c.logger.Print(err)
 		} else {
-			c.logger.Printf("Report %d illegal behaviors", len(*detectResult))
+			sample := (*detectResult)[0]
+			c.logger.Printf(
+				"Report %d illegal behaviors (NodeID=%d, Tag=%s); example: UID=%d RuleID=%d IP=%s",
+				len(*detectResult),
+				c.nodeInfo.NodeID,
+				c.Tag,
+				sample.UID,
+				sample.RuleID,
+				sample.IP,
+			)
 		}
 
 	}
