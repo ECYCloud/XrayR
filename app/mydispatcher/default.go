@@ -424,7 +424,13 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	routingLink := routingSession.AsRoutingContext(ctx)
 	inTag := routingLink.GetInboundTag()
 	isPickRoute := 0
-	if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
+
+	// XrayR: Always prefer the outbound with same tag as inbound to prevent
+	// cross-protocol routing (e.g., VLESS inbound -> Trojan outbound).
+	// This ensures traffic from a specific node always exits through its own outbound.
+	if h := d.ohm.GetHandler(inTag); h != nil {
+		handler = h
+	} else if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
 		ctx = session.SetForcedOutboundTagToContext(ctx, "")
 		if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
 			isPickRoute = 1
@@ -449,10 +455,6 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 		} else {
 			errors.LogInfo(ctx, "default route for ", destination)
 		}
-	}
-
-	if handler == nil {
-		handler = d.ohm.GetHandler(inTag) // Default outbound handler tag should be as same as the inbound tag
 	}
 
 	// If there is no outbound with tag as same as the inbound tag
