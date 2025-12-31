@@ -38,6 +38,10 @@ type dataPathWrapper struct {
 	}
 	// tag identifies this node/inbound tag for limiter and rules
 	tag string
+	// obm allows us to look up the correct outbound handler by tag, so we can
+	// enforce "same node in, same node out" routing without touching xray-core
+	// dispatcher internals.
+	obm outbound.Manager
 }
 
 // Tag returns the outbound tag. This MUST match the inbound tag to ensure
@@ -96,6 +100,57 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		}
 	}
 
+	// --- Enforce "same node in, same node out" semantics --------------------
+	// At this point, xray-core's dispatcher has already selected an outbound
+	// handler (i.e. this wrapper). For safety, we *re-check* that the inbound
+	// tag matches the node tag associated with this outbound. If they don't
+	// match, we try to reroute to the outbound whose tag equals the inbound
+	// tag. If such an outbound doesn't exist, we reject the connection.
+	if sess := session.InboundFromContext(ctx); sess != nil {
+		inTag := sess.Tag
+		if inTag != "" && inTag != w.tag {
+			// Try to find the correct outbound for this inbound tag.
+			if w.obm != nil {
+				if h := w.obm.GetHandler(inTag); h != nil {
+					// Avoid infinite recursion if, for some reason, the manager returns
+					// the same wrapper instance.
+					if h == w {
+						log.WithFields(log.Fields{
+							"inbound_tag":  inTag,
+							"outbound_tag": w.tag,
+						}).Warn("same-node routing: manager returned current outbound; using it directly")
+					} else {
+						log.WithFields(log.Fields{
+							"inbound_tag":       inTag,
+							"selected_outbound": w.tag,
+							"reroute_outbound":  h.Tag(),
+						}).Info("same-node routing: rerouting to outbound with matching tag")
+						// Delegate to the correct handler and stop processing in current wrapper.
+						h.Dispatch(ctx, link)
+						return
+					}
+				} else {
+					log.WithFields(log.Fields{
+						"inbound_tag":  inTag,
+						"outbound_tag": w.tag,
+					}).Error("same-node routing: no outbound handler found for inbound tag; rejecting connection")
+					common.Close(link.Writer)
+					common.Interrupt(link.Reader)
+					return
+				}
+			} else {
+				log.WithFields(log.Fields{
+					"inbound_tag":  inTag,
+					"outbound_tag": w.tag,
+				}).Error("same-node routing: outbound manager is nil; rejecting connection")
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
+			}
+		}
+	}
+
+	// Normal path: inbound tag is empty or already matches this node's tag.
 	w.Handler.Dispatch(ctx, link)
 }
 
@@ -128,8 +183,19 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 	if !ok {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
-	// Wrap outbound handler to enforce audit/device limit/rate limit and keep stats path
-	wrapper := &dataPathWrapper{Handler: handler, pm: c.pm, sm: c.stm, limiter: c.dispatcher.Limiter, ruleMgr: c.dispatcher.RuleManager, tag: c.Tag}
+	// Wrap outbound handler to enforce audit/device limit/rate limit, keep stats
+	// path, and enforce "same node in, same node out" semantics.
+	wrapper := &dataPathWrapper{
+		Handler: handler,
+		pm:      c.pm,
+		sm:      c.stm,
+		limiter: c.dispatcher.Limiter,
+		ruleMgr: c.dispatcher.RuleManager,
+		// Each controller instance has a unique Tag derived from NodeID, so using
+		// c.Tag here ensures per-node isolation for limiter/rules *and* routing.
+		tag: c.Tag,
+		obm: c.obm,
+	}
 	log.Infof("Adding outbound handler: configTag=%s handlerTag=%s wrapperTag=%s controllerTag=%s", config.Tag, handler.Tag(), wrapper.Tag(), c.Tag)
 	if err := c.obm.AddHandler(context.Background(), wrapper); err != nil {
 		return err
