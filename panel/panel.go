@@ -237,9 +237,11 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	config := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(coreLogConfig.Build()),
-			// Register core dispatcher first, then our custom mydispatcher as a separate feature
-			serial.ToTypedMessage(&dispatcher.Config{}),
+			// Register XrayR custom dispatcher as the primary routing.Dispatcher so
+			// that per-node outbound enforcement applies to all inbounds. The core
+			// dispatcher is still registered afterwards for compatibility.
 			serial.ToTypedMessage(&mydispatcher.Config{}),
+			serial.ToTypedMessage(&dispatcher.Config{}),
 			serial.ToTypedMessage(&stats.Config{}),
 			serial.ToTypedMessage(&proxyman.InboundConfig{}),
 			serial.ToTypedMessage(&proxyman.OutboundConfig{}),
