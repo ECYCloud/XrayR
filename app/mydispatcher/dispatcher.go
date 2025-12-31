@@ -3,11 +3,9 @@ package mydispatcher
 
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
-import "github.com/xtls/xray-core/features/routing"
-
-// Type returns the standard routing.Dispatcher type token so that XrayR's
-// custom dispatcher becomes the global dispatcher used by xray-core. This
-// allows us to enforce per-node outbound selection for all inbounds.
+// Type returns a unique feature type token so this custom dispatcher is
+// registered alongside the core dispatcher (does NOT override it). This avoids
+// panics from xray-core inbounds that expect the concrete *dispatcher.DefaultDispatcher.
 func Type() interface{} {
-	return routing.DispatcherType()
+	return (*DefaultDispatcher)(nil)
 }
