@@ -473,23 +473,23 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	inTag := routingLink.GetInboundTag()
 	isPickRoute := 0
 
-	// XrayR: Always use the outbound with same tag as inbound to prevent
-	// cross-protocol routing (e.g., VLESS inbound -> Trojan outbound).
-	// This ensures traffic from a specific node always exits through its own outbound.
-	// If no matching outbound is found, REJECT the connection instead of using default handler.
-	if inTag != "" {
+	// 对 VLESS 节点强制执行“源进源出”：入站 tag 必须和出站 tag 完全一致，
+	// 否则直接拒绝，防止 VLESS 流量串到其他节点或协议上。
+	isVLESSNode := strings.HasPrefix(inTag, "VLESS_")
+
+	if inTag != "" && isVLESSNode {
 		if h := d.ohm.GetHandler(inTag); h != nil && h.Tag() == inTag {
 			handler = h
-			isPickRoute = 3 // Mark as matched by inTag
+			isPickRoute = 3 // Matched by inTag (VLESS same-node)
 		} else {
-			// CRITICAL: No matching outbound found for this node, reject connection
-			errors.LogError(ctx, "XrayR: FATAL - no outbound found for inTag: ", inTag, ", rejecting connection to prevent cross-protocol routing")
+			// 对 VLESS 节点，找不到同名出站时直接拒绝，避免跨节点泄露。
+			errors.LogError(ctx, "XrayR: FATAL - no outbound found for VLESS inTag: ", inTag, ", rejecting connection to prevent cross-node routing")
 			common.Close(link.Writer)
 			common.Interrupt(link.Reader)
 			return
 		}
 	} else {
-		// inTag is empty, use normal routing logic
+		// 非 VLESS 或 inTag 为空，走原有路由逻辑，保持其它协议行为不变。
 		if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
 			ctx = session.SetForcedOutboundTagToContext(ctx, "")
 			if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {
@@ -517,7 +517,6 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 			}
 		}
 
-		// Only use default handler when inTag is empty
 		if handler == nil {
 			handler = d.ohm.GetDefaultHandler()
 		}

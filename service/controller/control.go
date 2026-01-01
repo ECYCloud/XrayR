@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common"
@@ -57,13 +58,12 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	}
 
 	// --- FIRST: Enforce "same node in, same node out" semantics -------------
-	// This MUST be checked before audit/limiter to ensure we use the correct
-	// node tag for statistics. If inbound tag doesn't match this wrapper's tag,
-	// immediately reroute to the correct outbound without processing here.
+	// 这里只对 VLESS 节点做强制校验：入站 tag 以 "VLESS_" 开头时，必须
+	// 使用相同 tag 的出站；其它协议遵循调度器的路由结果，避免改变既有行为。
 	if sess := session.InboundFromContext(ctx); sess != nil {
 		inTag := sess.Tag
-		if inTag != "" && inTag != w.tag {
-			// Try to find the correct outbound for this inbound tag.
+		if strings.HasPrefix(inTag, "VLESS_") && inTag != "" && inTag != w.tag {
+			// Try to find the correct outbound for this VLESS inbound tag.
 			if w.obm != nil {
 				if h := w.obm.GetHandler(inTag); h != nil {
 					// Avoid infinite recursion if, for some reason, the manager returns
