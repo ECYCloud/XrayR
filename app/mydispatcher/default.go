@@ -153,7 +153,9 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType for registering as a separate feature, not overriding core dispatcher.
+// Type implements common.HasType. Returns routing.DispatcherType() so that
+// mydispatcher replaces the core dispatcher and all inbound connections use
+// the per-node outbound enforcement logic in routedDispatch().
 func (*DefaultDispatcher) Type() interface{} {
 	return Type()
 }

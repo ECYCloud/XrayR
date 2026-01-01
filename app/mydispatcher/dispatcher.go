@@ -1,18 +1,19 @@
-// Package mydispatcher implements a custom dispatcher with rate limiting and
-// online device counting on top of the core Xray dispatcher.
+// Package mydispatcher implements a custom dispatcher with rate limiting,
+// online device counting, and per-node outbound enforcement on top of the
+// core Xray dispatcher.
 package mydispatcher
+
+import "github.com/xtls/xray-core/features/routing"
 
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
-// Type returns the feature type for the custom dispatcher itself. This keeps
-// XrayR's dispatcher registered as a *separate* feature, without overriding
-// the core routing.Dispatcher (github.com/xtls/xray-core/app/dispatcher).
+// Type returns routing.DispatcherType() so that mydispatcher replaces the
+// core dispatcher (github.com/xtls/xray-core/app/dispatcher). This ensures
+// that per-node outbound enforcement (same-node routing) is applied to all
+// inbound connections.
 //
-// The controller accesses this feature via server.GetFeature(mydispatcher.Type())
-// to use Limiter and RuleManager, while inbound handlers and core routing
-// continue to use the official dispatcher.DefaultDispatcher for
-// routing.DispatcherType(). This avoids type-assertion panics in upstream
-// code that expects *dispatcher.DefaultDispatcher.
+// The controller can still access mydispatcher.DefaultDispatcher via
+// server.GetFeature(routing.DispatcherType()) and type assertion.
 func Type() interface{} {
-	return (*DefaultDispatcher)(nil)
+	return routing.DispatcherType()
 }
