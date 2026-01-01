@@ -10,6 +10,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/r3labs/diff/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/app/stats"
 	"github.com/xtls/xray-core/common/serial"
@@ -236,12 +237,11 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	config := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(coreLogConfig.Build()),
-			// IMPORTANT: Register mydispatcher as the ONLY dispatcher so that
-			// per-node outbound enforcement (same-node routing) applies to all
-			// inbound connections. mydispatcher.Type() now returns
-			// routing.DispatcherType(), replacing the core dispatcher entirely.
-			// This ensures traffic from a specific node always exits through
-			// its own outbound, preventing cross-node routing issues.
+			// IMPORTANT: Register the official dispatcher FIRST so that upstream
+			// code (e.g., mux.Server) that expects *dispatcher.DefaultDispatcher
+			// receives the correct type. Our custom mydispatcher is registered
+			// separately and accessed via mydispatcher.Type() in controller.go.
+			serial.ToTypedMessage(&dispatcher.Config{}),
 			serial.ToTypedMessage(&mydispatcher.Config{}),
 			serial.ToTypedMessage(&stats.Config{}),
 			serial.ToTypedMessage(&proxyman.InboundConfig{}),
