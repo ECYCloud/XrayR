@@ -56,6 +56,58 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		sess.CanSpliceCopy = 3
 	}
 
+	// --- FIRST: Enforce "same node in, same node out" semantics -------------
+	// This MUST be checked before audit/limiter to ensure we use the correct
+	// node tag for statistics. If inbound tag doesn't match this wrapper's tag,
+	// immediately reroute to the correct outbound without processing here.
+	if sess := session.InboundFromContext(ctx); sess != nil {
+		inTag := sess.Tag
+		if inTag != "" && inTag != w.tag {
+			// Try to find the correct outbound for this inbound tag.
+			if w.obm != nil {
+				if h := w.obm.GetHandler(inTag); h != nil {
+					// Avoid infinite recursion if, for some reason, the manager returns
+					// the same wrapper instance.
+					if h == w {
+						log.WithFields(log.Fields{
+							"inbound_tag":  inTag,
+							"outbound_tag": w.tag,
+						}).Warn("same-node routing: manager returned current outbound; using it directly")
+						// Fall through to process in this wrapper
+					} else {
+						log.WithFields(log.Fields{
+							"inbound_tag":       inTag,
+							"selected_outbound": w.tag,
+							"reroute_outbound":  h.Tag(),
+						}).Info("same-node routing: rerouting to outbound with matching tag")
+						// Delegate to the correct handler and stop processing in current wrapper.
+						// The correct wrapper will handle audit/limiter with the right node tag.
+						h.Dispatch(ctx, link)
+						return
+					}
+				} else {
+					log.WithFields(log.Fields{
+						"inbound_tag":  inTag,
+						"outbound_tag": w.tag,
+					}).Error("same-node routing: no outbound handler found for inbound tag; rejecting connection")
+					common.Close(link.Writer)
+					common.Interrupt(link.Reader)
+					return
+				}
+			} else {
+				log.WithFields(log.Fields{
+					"inbound_tag":  inTag,
+					"outbound_tag": w.tag,
+				}).Error("same-node routing: outbound manager is nil; rejecting connection")
+				common.Close(link.Writer)
+				common.Interrupt(link.Reader)
+				return
+			}
+		}
+	}
+
+	// --- Now we're in the correct wrapper (inTag matches w.tag) -------------
+	// Perform audit and rate limiting with the correct node tag.
 	if sess := session.InboundFromContext(ctx); sess != nil && sess.User != nil {
 		email := sess.User.Email
 		srcIP := sess.Source.Address.IP().String()
@@ -100,57 +152,7 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 		}
 	}
 
-	// --- Enforce "same node in, same node out" semantics --------------------
-	// At this point, xray-core's dispatcher has already selected an outbound
-	// handler (i.e. this wrapper). For safety, we *re-check* that the inbound
-	// tag matches the node tag associated with this outbound. If they don't
-	// match, we try to reroute to the outbound whose tag equals the inbound
-	// tag. If such an outbound doesn't exist, we reject the connection.
-	if sess := session.InboundFromContext(ctx); sess != nil {
-		inTag := sess.Tag
-		if inTag != "" && inTag != w.tag {
-			// Try to find the correct outbound for this inbound tag.
-			if w.obm != nil {
-				if h := w.obm.GetHandler(inTag); h != nil {
-					// Avoid infinite recursion if, for some reason, the manager returns
-					// the same wrapper instance.
-					if h == w {
-						log.WithFields(log.Fields{
-							"inbound_tag":  inTag,
-							"outbound_tag": w.tag,
-						}).Warn("same-node routing: manager returned current outbound; using it directly")
-					} else {
-						log.WithFields(log.Fields{
-							"inbound_tag":       inTag,
-							"selected_outbound": w.tag,
-							"reroute_outbound":  h.Tag(),
-						}).Info("same-node routing: rerouting to outbound with matching tag")
-						// Delegate to the correct handler and stop processing in current wrapper.
-						h.Dispatch(ctx, link)
-						return
-					}
-				} else {
-					log.WithFields(log.Fields{
-						"inbound_tag":  inTag,
-						"outbound_tag": w.tag,
-					}).Error("same-node routing: no outbound handler found for inbound tag; rejecting connection")
-					common.Close(link.Writer)
-					common.Interrupt(link.Reader)
-					return
-				}
-			} else {
-				log.WithFields(log.Fields{
-					"inbound_tag":  inTag,
-					"outbound_tag": w.tag,
-				}).Error("same-node routing: outbound manager is nil; rejecting connection")
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			}
-		}
-	}
-
-	// Normal path: inbound tag is empty or already matches this node's tag.
+	// Normal path: inbound tag matches this node's tag, dispatch to actual handler.
 	w.Handler.Dispatch(ctx, link)
 }
 
