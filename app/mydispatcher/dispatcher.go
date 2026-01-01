@@ -1,11 +1,15 @@
-// Package mydispatcher Package dispatcher implement the rate limiter and the online device counter
+// Package mydispatcher implements a custom dispatcher with rate limiting and
+// online device counting on top of the core Xray dispatcher.
 package mydispatcher
+
+import "github.com/xtls/xray-core/features/routing"
 
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
-// Type returns a unique feature type token so this custom dispatcher is
-// registered alongside the core dispatcher (does NOT override it). This avoids
-// panics from xray-core inbounds that expect the concrete *dispatcher.DefaultDispatcher.
+// Type returns the standard routing.Dispatcher type so that this dispatcher
+// becomes the primary Dispatcher feature for the Xray instance. The core
+// dispatcher is still registered (see panel.loadCore), but our implementation
+// is returned first from GetFeature(routing.DispatcherType()).
 func Type() interface{} {
-	return (*DefaultDispatcher)(nil)
+	return routing.DispatcherType()
 }
