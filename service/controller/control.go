@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/xtls/xray-core/common"
+	xlog "github.com/xtls/xray-core/common/log"
 	"github.com/xtls/xray-core/common/protocol"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
@@ -75,6 +76,12 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 						}).Warn("same-node routing: manager returned current outbound; using it directly")
 						// Fall through to process in this wrapper
 					} else {
+						// Update access log detour to reflect the actual same-node outbound
+						// selection (VLESS_x => VLESS_x) instead of the originally chosen
+						// Trojan or other outbound recorded by core dispatcher.
+						if am := xlog.AccessMessageFromContext(ctx); am != nil {
+							am.Detour = inTag + " => " + h.Tag()
+						}
 						log.WithFields(log.Fields{
 							"inbound_tag":       inTag,
 							"selected_outbound": w.tag,
