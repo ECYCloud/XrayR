@@ -4,15 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/xtls/xray-core/app/router"
 	"github.com/xtls/xray-core/common/protocol"
+	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
 	"github.com/xtls/xray-core/features/outbound"
 	"github.com/xtls/xray-core/features/policy"
+	"github.com/xtls/xray-core/features/routing"
 	"github.com/xtls/xray-core/features/stats"
 
 	"github.com/ECYCloud/XrayR/api"
@@ -45,6 +49,7 @@ type Controller struct {
 	obm          outbound.Manager
 	stm          stats.Manager
 	pm           policy.Manager
+	router       routing.Router
 	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
@@ -76,6 +81,14 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		}
 	}
 
+	// Get the router for adding dynamic routing rules
+	var rt routing.Router
+	if f := server.GetFeature(routing.RouterType()); f != nil {
+		if r, ok := f.(routing.Router); ok {
+			rt = r
+		}
+	}
+
 	controller := &Controller{
 		server:     server,
 		config:     config,
@@ -85,6 +98,7 @@ func New(server *core.Instance, api api.API, config *Config, panelType string) *
 		obm:        server.GetFeature(outbound.ManagerType()).(outbound.Manager),
 		stm:        server.GetFeature(stats.ManagerType()).(stats.Manager),
 		pm:         server.GetFeature(policy.ManagerType()).(policy.Manager),
+		router:     rt,
 		dispatcher: md,
 		startAt:    time.Now(),
 		logger:     logger,
@@ -207,6 +221,16 @@ func (c *Controller) Close() error {
 			if err := c.tasks[i].Periodic.Close(); err != nil {
 				c.logger.Panicf("%s periodic task close failed: %s", c.tasks[i].tag, err)
 			}
+		}
+	}
+
+	// Remove VLESS same-node routing rule if it was added
+	if strings.HasPrefix(c.Tag, "VLESS_") && c.router != nil {
+		ruleTag := "vless-same-node-" + c.Tag
+		if err := c.router.RemoveRule(ruleTag); err != nil {
+			c.logger.Warnf("Failed to remove VLESS same-node routing rule %s: %v", ruleTag, err)
+		} else {
+			c.logger.Infof("Removed VLESS same-node routing rule: %s", ruleTag)
 		}
 	}
 
@@ -381,6 +405,28 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 		if err != nil {
 
 			return err
+		}
+
+		// For VLESS nodes, add a routing rule to enforce same-node routing.
+		// This ensures the official dispatcher routes VLESS traffic directly
+		// to the corresponding outbound without needing post-dispatch correction.
+		if strings.HasPrefix(c.Tag, "VLESS_") && c.router != nil {
+			routingRule := &router.RoutingRule{
+				InboundTag: []string{c.Tag},
+				TargetTag:  &router.RoutingRule_Tag{Tag: c.Tag},
+				RuleTag:    "vless-same-node-" + c.Tag,
+			}
+			// AddRule expects *router.Config, not *router.RoutingRule
+			routerConfig := &router.Config{
+				Rule: []*router.RoutingRule{routingRule},
+			}
+			ruleMsg := serial.ToTypedMessage(routerConfig)
+			// Prepend the rule (shouldAppend=false) so it takes priority
+			if err := c.router.AddRule(ruleMsg, false); err != nil {
+				c.logger.Warnf("Failed to add VLESS same-node routing rule for %s: %v", c.Tag, err)
+			} else {
+				c.logger.Infof("Added VLESS same-node routing rule: inboundTag=%s -> outboundTag=%s", c.Tag, c.Tag)
+			}
 		}
 
 	} else {

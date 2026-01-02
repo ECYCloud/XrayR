@@ -10,6 +10,7 @@ import (
 	"dario.cat/mergo"
 	"github.com/r3labs/diff/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/xtls/xray-core/app/dispatcher"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/app/stats"
 	"github.com/xtls/xray-core/common/serial"
@@ -236,9 +237,12 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 	config := &core.Config{
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(coreLogConfig.Build()),
-			// Use mydispatcher as the primary dispatcher. It implements
-			// routing.DispatcherType() and provides VLESS same-node routing
-			// enforcement, rate limiting, and rule management.
+			// IMPORTANT: Register the official dispatcher FIRST so that upstream
+			// code (e.g., mux.Server, vless inbound) that expects *dispatcher.DefaultDispatcher
+			// receives the correct type. Our custom mydispatcher is registered
+			// separately and accessed via mydispatcher.Type() in controller.go.
+			// The dataPathWrapper.Dispatch method handles VLESS same-node routing.
+			serial.ToTypedMessage(&dispatcher.Config{}),
 			serial.ToTypedMessage(&mydispatcher.Config{}),
 			serial.ToTypedMessage(&stats.Config{}),
 			serial.ToTypedMessage(&proxyman.InboundConfig{}),
