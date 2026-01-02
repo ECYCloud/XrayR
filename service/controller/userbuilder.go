@@ -160,9 +160,11 @@ func cipherFromString(c string) shadowsocks.CipherType {
 }
 
 func (c *Controller) buildUserTag(user *api.UserInfo) string {
-	// Use UID-only as the user identifier. This makes the identifier stable
-	// even if the user's email is changed on the panel side.
-	return fmt.Sprintf("%d", user.UID)
+	// Include node Tag in the user identifier to prevent cross-node traffic mixing
+	// when multiple nodes run in the same XrayR process.
+	// Format: NodeTag|UID
+	// This ensures each node has its own independent traffic counters.
+	return fmt.Sprintf("%s|%d", c.Tag, user.UID)
 }
 
 func (c *Controller) checkShadowsocksPassword(password string, method string) (string, error) {

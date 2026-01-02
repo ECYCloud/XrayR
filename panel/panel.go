@@ -238,7 +238,7 @@ func (p *Panel) loadCore(panelConfig *Config) *core.Instance {
 		App: []*serial.TypedMessage{
 			serial.ToTypedMessage(coreLogConfig.Build()),
 			// IMPORTANT: Register the official dispatcher FIRST so that upstream
-			// code (e.g., mux.Server) that expects *dispatcher.DefaultDispatcher
+			// code (e.g., mux.Server, vless inbound) that expects *dispatcher.DefaultDispatcher
 			// receives the correct type. Our custom mydispatcher is registered
 			// separately and accessed via mydispatcher.Type() in controller.go.
 			serial.ToTypedMessage(&dispatcher.Config{}),
