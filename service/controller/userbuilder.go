@@ -160,11 +160,12 @@ func cipherFromString(c string) shadowsocks.CipherType {
 }
 
 func (c *Controller) buildUserTag(user *api.UserInfo) string {
-	// Use UID as the user identifier to match limiter's UserInfo storage format.
-	// Note: If multiple nodes run in the same XrayR process with same users,
-	// traffic and online status will be shared across nodes. This is expected
-	// behavior for most deployments where each node runs in a separate process.
-	return fmt.Sprintf("%d", user.UID)
+	// Include node Tag in the user identifier to prevent cross-node traffic mixing
+	// when multiple nodes run in the same XrayR process.
+	// Format: NodeTag|UID
+	// This ensures each node has its own independent traffic counters.
+	// Note: limiter.go must use the same format for UserInfo storage keys.
+	return fmt.Sprintf("%s|%d", c.Tag, user.UID)
 }
 
 func (c *Controller) checkShadowsocksPassword(password string, method string) (string, error) {

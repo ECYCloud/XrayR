@@ -83,7 +83,9 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 
 	userMap := new(sync.Map)
 	for _, u := range *userList {
-		userKey := fmt.Sprintf("%d", u.UID)
+		// Use tag|UID format to match buildUserTag() in controller
+		// This ensures consistent key format across limiter and traffic counter
+		userKey := fmt.Sprintf("%s|%d", tag, u.UID)
 		userMap.Store(userKey, UserInfo{
 			UID:         u.UID,
 			SpeedLimit:  u.SpeedLimit,
@@ -100,7 +102,9 @@ func (l *Limiter) UpdateInboundLimiter(tag string, updatedUserList *[]api.UserIn
 		inboundInfo := value.(*InboundInfo)
 		// Update User info
 		for _, u := range *updatedUserList {
-			userKey := fmt.Sprintf("%d", u.UID)
+			// Use tag|UID format to match buildUserTag() in controller
+			// This ensures consistent key format across limiter and traffic counter
+			userKey := fmt.Sprintf("%s|%d", tag, u.UID)
 			inboundInfo.UserInfo.Store(userKey, UserInfo{
 				UID:         u.UID,
 				SpeedLimit:  u.SpeedLimit,
@@ -228,9 +232,9 @@ func globalLimit(inboundInfo *InboundInfo, tag string, userKey string, uid int, 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(inboundInfo.GlobalLimit.config.Timeout)*time.Second)
 	defer cancel()
 
-	// Compose a stable unique key per node & user. This avoids relying on
-	// email content and works even if emails change.
-	uniqueKey := fmt.Sprintf("%s|%s", tag, userKey)
+	// userKey is already in format "tag|UID", which is unique per node & user.
+	// Use it directly as the cache key.
+	uniqueKey := userKey
 
 	v, err := inboundInfo.GlobalLimit.globalOnlineIP.Get(ctx, uniqueKey, new(map[string]int))
 	if err != nil {
