@@ -407,14 +407,15 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 			return err
 		}
 
-		// For VLESS nodes, add a routing rule to enforce same-node routing.
-		// This ensures the official dispatcher routes VLESS traffic directly
-		// to the corresponding outbound without needing post-dispatch correction.
-		if strings.HasPrefix(c.Tag, "VLESS_") && c.router != nil {
+		// For all XrayR-managed nodes, add a routing rule to enforce same-node routing.
+		// This ensures the official dispatcher routes traffic directly to the corresponding
+		// outbound without needing post-dispatch correction.
+		// Supported protocols: VLESS, Trojan, Vmess, Shadowsocks
+		if isXrayRManagedTag(c.Tag) && c.router != nil {
 			routingRule := &router.RoutingRule{
 				InboundTag: []string{c.Tag},
 				TargetTag:  &router.RoutingRule_Tag{Tag: c.Tag},
-				RuleTag:    "vless-same-node-" + c.Tag,
+				RuleTag:    "xrayr-same-node-" + c.Tag,
 			}
 			// AddRule expects *router.Config, not *router.RoutingRule
 			routerConfig := &router.Config{
@@ -423,9 +424,9 @@ func (c *Controller) addNewTag(newNodeInfo *api.NodeInfo) (err error) {
 			ruleMsg := serial.ToTypedMessage(routerConfig)
 			// Prepend the rule (shouldAppend=false) so it takes priority
 			if err := c.router.AddRule(ruleMsg, false); err != nil {
-				c.logger.Warnf("Failed to add VLESS same-node routing rule for %s: %v", c.Tag, err)
+				c.logger.Warnf("Failed to add XrayR same-node routing rule for %s: %v", c.Tag, err)
 			} else {
-				c.logger.Infof("Added VLESS same-node routing rule: inboundTag=%s -> outboundTag=%s", c.Tag, c.Tag)
+				c.logger.Infof("Added XrayR same-node routing rule: inboundTag=%s -> outboundTag=%s", c.Tag, c.Tag)
 			}
 		}
 

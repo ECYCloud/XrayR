@@ -34,6 +34,26 @@ import (
 
 var errSniffingTimeout = errors.New("timeout on sniffing")
 
+// xrayRManagedPrefixes defines all protocol prefixes that XrayR manages.
+// Tags with these prefixes follow the format: {Protocol}_{IP}_{Port}_{NodeID}
+var xrayRManagedPrefixes = []string{
+	"VLESS_",
+	"Trojan_",
+	"Vmess_",
+	"Shadowsocks_",
+}
+
+// isXrayRManagedTag checks if a tag is managed by XrayR (i.e., it belongs to a specific node).
+// XrayR-managed tags have the format: {Protocol}_{IP}_{Port}_{NodeID}
+func isXrayRManagedTag(tag string) bool {
+	for _, prefix := range xrayRManagedPrefixes {
+		if strings.HasPrefix(tag, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 type cachedReader struct {
 	sync.Mutex
 	reader buf.TimeoutReader // *pipe.Reader or *buf.TimeoutWrapperReader
@@ -474,29 +494,31 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 	inTag := routingLink.GetInboundTag()
 	isPickRoute := 0
 
-	// 对 VLESS 节点强制执行“源进源出”：入站 tag 必须和出站 tag 完全一致，
-	// 否则直接拒绝，防止 VLESS 流量串到其他节点或协议上。
+	// 对所有 XrayR 管理的节点强制执行“源进源出”：入站 tag 必须和出站 tag 完全一致，
+	// 否则直接拒绝，防止流量串到其他节点或协议上。
+	// XrayR 节点的 tag 格式为: {Protocol}_{IP}_{Port}_{NodeID}
+	// 支持的协议: VLESS, Trojan, Vmess, Shadowsocks
 	// 注意：优先从 session.InboundFromContext 获取 tag，因为 routingLink.GetInboundTag()
 	// 可能返回空值或不正确的值（取决于 xray-core 版本和上下文初始化顺序）。
 	if sessionInbound != nil && sessionInbound.Tag != "" {
 		inTag = sessionInbound.Tag
 	}
-	isVLESSNode := strings.HasPrefix(inTag, "VLESS_")
+	isXrayRNode := isXrayRManagedTag(inTag)
 
-	if inTag != "" && isVLESSNode {
+	if inTag != "" && isXrayRNode {
 		if h := d.ohm.GetHandler(inTag); h != nil {
 			handler = h
-			isPickRoute = 3 // Matched by inTag (VLESS same-node)
-			errors.LogInfo(ctx, "VLESS same-node routing: inTag=", inTag, " outboundTag=", h.Tag())
+			isPickRoute = 3 // Matched by inTag (XrayR same-node)
+			errors.LogInfo(ctx, "XrayR same-node routing: inTag=", inTag, " outboundTag=", h.Tag())
 		} else {
-			// 对 VLESS 节点，找不到同名出站时直接拒绝，避免跨节点泄露。
-			errors.LogError(ctx, "XrayR: FATAL - no outbound found for VLESS inTag: ", inTag, ", rejecting connection to prevent cross-node routing")
+			// 对 XrayR 节点，找不到同名出站时直接拒绝，避免跨节点泄露。
+			errors.LogError(ctx, "XrayR: FATAL - no outbound found for inTag: ", inTag, ", rejecting connection to prevent cross-node routing")
 			common.Close(link.Writer)
 			common.Interrupt(link.Reader)
 			return
 		}
 	} else {
-		// 非 VLESS 或 inTag 为空，走原有路由逻辑，保持其它协议行为不变。
+		// 非 XrayR 节点或 inTag 为空，走原有路由逻辑。
 		if forcedOutboundTag := session.GetForcedOutboundTagFromContext(ctx); forcedOutboundTag != "" {
 			ctx = session.SetForcedOutboundTagToContext(ctx, "")
 			if h := d.ohm.GetHandler(forcedOutboundTag); h != nil {

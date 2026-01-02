@@ -27,6 +27,26 @@ func (c *Controller) removeInbound(tag string) error {
 	return err
 }
 
+// xrayRManagedPrefixes defines all protocol prefixes that XrayR manages.
+// Tags with these prefixes follow the format: {Protocol}_{IP}_{Port}_{NodeID}
+var xrayRManagedPrefixes = []string{
+	"VLESS_",
+	"Trojan_",
+	"Vmess_",
+	"Shadowsocks_",
+}
+
+// isXrayRManagedTag checks if a tag is managed by XrayR (i.e., it belongs to a specific node).
+// XrayR-managed tags have the format: {Protocol}_{IP}_{Port}_{NodeID}
+func isXrayRManagedTag(tag string) bool {
+	for _, prefix := range xrayRManagedPrefixes {
+		if strings.HasPrefix(tag, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // dataPathWrapper wraps outbound.Handler to enforce device limit, user/node speed limit,
 // audit rules and ensure userland path is used for stats.
 type dataPathWrapper struct {
@@ -59,12 +79,13 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	}
 
 	// --- FIRST: Enforce "same node in, same node out" semantics -------------
-	// 这里只对 VLESS 节点做强制校验：入站 tag 以 "VLESS_" 开头时，必须
-	// 使用相同 tag 的出站；其它协议遵循调度器的路由结果，避免改变既有行为。
+	// 对所有 XrayR 管理的节点做强制校验：入站 tag 必须和出站 tag 完全一致，
+	// 防止流量串到其他节点或协议上。
+	// 支持的协议: VLESS, Trojan, Vmess, Shadowsocks
 	if sess := session.InboundFromContext(ctx); sess != nil {
 		inTag := sess.Tag
-		if strings.HasPrefix(inTag, "VLESS_") && inTag != "" && inTag != w.tag {
-			// Try to find the correct outbound for this VLESS inbound tag.
+		if isXrayRManagedTag(inTag) && inTag != "" && inTag != w.tag {
+			// Try to find the correct outbound for this XrayR inbound tag.
 			if w.obm != nil {
 				if h := w.obm.GetHandler(inTag); h != nil {
 					// Avoid infinite recursion if, for some reason, the manager returns
@@ -77,8 +98,8 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 						// Fall through to process in this wrapper
 					} else {
 						// Update access log detour to reflect the actual same-node outbound
-						// selection (VLESS_x => VLESS_x) instead of the originally chosen
-						// Trojan or other outbound recorded by core dispatcher.
+						// selection (e.g., Trojan_x => Trojan_x) instead of the originally chosen
+						// different outbound recorded by core dispatcher.
 						if am := xlog.AccessMessageFromContext(ctx); am != nil {
 							am.Detour = inTag + " => " + h.Tag()
 						}
