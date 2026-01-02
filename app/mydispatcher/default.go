@@ -153,10 +153,10 @@ func (d *DefaultDispatcher) Init(config *Config, om outbound.Manager, router rou
 	return nil
 }
 
-// Type implements common.HasType for registering as a separate feature,
-// not overriding core dispatcher.
+// Type implements common.HasType. Returns routing.DispatcherType() so that
+// mydispatcher is used as the primary dispatcher by inbound handlers.
 func (*DefaultDispatcher) Type() interface{} {
-	return Type()
+	return routing.DispatcherType()
 }
 
 // Start implements common.Runnable.
@@ -475,12 +475,18 @@ func (d *DefaultDispatcher) routedDispatch(ctx context.Context, link *transport.
 
 	// 对 VLESS 节点强制执行“源进源出”：入站 tag 必须和出站 tag 完全一致，
 	// 否则直接拒绝，防止 VLESS 流量串到其他节点或协议上。
+	// 注意：优先从 session.InboundFromContext 获取 tag，因为 routingLink.GetInboundTag()
+	// 可能返回空值或不正确的值（取决于 xray-core 版本和上下文初始化顺序）。
+	if sessionInbound != nil && sessionInbound.Tag != "" {
+		inTag = sessionInbound.Tag
+	}
 	isVLESSNode := strings.HasPrefix(inTag, "VLESS_")
 
 	if inTag != "" && isVLESSNode {
-		if h := d.ohm.GetHandler(inTag); h != nil && h.Tag() == inTag {
+		if h := d.ohm.GetHandler(inTag); h != nil {
 			handler = h
 			isPickRoute = 3 // Matched by inTag (VLESS same-node)
+			errors.LogInfo(ctx, "VLESS same-node routing: inTag=", inTag, " outboundTag=", h.Tag())
 		} else {
 			// 对 VLESS 节点，找不到同名出站时直接拒绝，避免跨节点泄露。
 			errors.LogError(ctx, "XrayR: FATAL - no outbound found for VLESS inTag: ", inTag, ", rejecting connection to prevent cross-node routing")
