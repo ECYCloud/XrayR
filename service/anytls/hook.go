@@ -27,6 +27,9 @@ func (c *connCounter) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, int64(n), 0)
+		// Re-add IP to onlineIPs on every traffic event
+		// This ensures active connections are tracked even after collectUsage() clears the maps
+		c.svc.updateOnlineIP(c.user, c.Conn.RemoteAddr())
 		if c.limiter != nil {
 			_ = c.limiter.WaitN(context.Background(), n)
 		}
@@ -41,6 +44,9 @@ func (c *connCounter) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, 0, int64(n))
+		// Re-add IP to onlineIPs on every traffic event
+		// This ensures active connections are tracked even after collectUsage() clears the maps
+		c.svc.updateOnlineIP(c.user, c.Conn.RemoteAddr())
 		if c.limiter != nil {
 			_ = c.limiter.WaitN(context.Background(), n)
 		}

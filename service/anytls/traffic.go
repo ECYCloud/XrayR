@@ -116,6 +116,9 @@ func (s *AnyTLSService) addTraffic(uuid string, up, down int64) {
 	}
 	t.Upload += up
 	t.Download += down
+
+	// Note: We don't update onlineIPs here because we don't have the IP address.
+	// The IP is updated in Read/Write methods via updateOnlineIP().
 }
 
 func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
@@ -166,6 +169,41 @@ func (s *AnyTLSService) allowConnection(uuid, ip string) bool {
 	activeMap[host] = time.Now()
 
 	return true
+}
+
+// updateOnlineIP re-adds an IP to the onlineIPs map and updates its last active time.
+// This is called on every traffic event to ensure active connections are tracked
+// even after collectUsage() clears the maps (similar to traditional Xray protocols).
+func (s *AnyTLSService) updateOnlineIP(uuid string, addr net.Addr) {
+	if addr == nil {
+		return
+	}
+
+	remote := addr.String()
+	host := remote
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	if host == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Re-add IP to onlineIPs (in case it was cleared by collectUsage)
+	if ipSet, exists := s.onlineIPs[uuid]; exists {
+		ipSet[host] = struct{}{}
+	} else {
+		s.onlineIPs[uuid] = map[string]struct{}{host: {}}
+	}
+
+	// Update last active time
+	if activeMap, exists := s.ipLastActive[uuid]; exists {
+		activeMap[host] = time.Now()
+	} else {
+		s.ipLastActive[uuid] = map[string]time.Time{host: time.Now()}
+	}
 }
 
 func (s *AnyTLSService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[string]userTraffic) {
