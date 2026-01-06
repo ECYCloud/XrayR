@@ -93,6 +93,12 @@ func (s *TuicService) syncUsers(userInfo *[]api.UserInfo) {
 			delete(s.onlineIPs, uuid)
 		}
 	}
+	// Clean ipLastActive records for removed users
+	for uuid := range s.ipLastActive {
+		if _, ok := newUsers[uuid]; !ok {
+			delete(s.ipLastActive, uuid)
+		}
+	}
 }
 
 func (s *TuicService) addTraffic(uuid string, up, down int64) {
@@ -132,6 +138,14 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 		ips = make(map[string]struct{})
 		s.onlineIPs[uuid] = ips
 	}
+
+	// Initialize ipLastActive map for this user if not exists
+	activeMap, ok := s.ipLastActive[uuid]
+	if !ok {
+		activeMap = make(map[string]time.Time)
+		s.ipLastActive[uuid] = activeMap
+	}
+
 	if _, exists := ips[host]; !exists {
 		if user.DeviceLimit > 0 && len(ips) >= user.DeviceLimit {
 			s.logger.WithFields(log.Fields{
@@ -143,6 +157,10 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 		}
 		ips[host] = struct{}{}
 	}
+
+	// Update last active time for this IP
+	activeMap[host] = time.Now()
+
 	return true
 }
 
@@ -174,6 +192,8 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[s
 		t.Download = 0
 	}
 
+	// Collect online users before clearing
+	// This mimics the behavior of traditional Xray protocols (VMess/VLESS/Trojan)
 	var online []api.OnlineUser
 	for uuid, ipSet := range s.onlineIPs {
 		user, ok := s.users[uuid]
@@ -184,6 +204,13 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[s
 			online = append(online, api.OnlineUser{UID: user.UID, IP: ip})
 		}
 	}
+
+	// Clear online IPs and last active tracking after collection
+	// This prevents zombie connections from accumulating over time
+	// Similar to limiter.GetOnlineDevice() which calls inboundInfo.UserOnlineIP.Delete(email)
+	// Only IPs that are actively used in the next reporting cycle will be tracked again
+	s.onlineIPs = make(map[string]map[string]struct{})
+	s.ipLastActive = make(map[string]map[string]time.Time)
 
 	return uts, online, snapshot
 }

@@ -149,6 +149,12 @@ func (h *Hysteria2Service) syncUsers(userInfo *[]api.UserInfo) {
 			delete(h.onlineIPs, uuid)
 		}
 	}
+	// Clean ipLastActive records for removed users
+	for uuid := range h.ipLastActive {
+		if _, ok := newUsers[uuid]; !ok {
+			delete(h.ipLastActive, uuid)
+		}
+	}
 }
 
 func determineRate(nodeLimit, userLimit uint64) (limit uint64) {
@@ -206,6 +212,8 @@ func (h *Hysteria2Service) collectUsage() ([]api.UserTraffic, []api.OnlineUser, 
 		t.Download = 0
 	}
 
+	// Collect online users before clearing
+	// This mimics the behavior of traditional Xray protocols (VMess/VLESS/Trojan)
 	var onlineUsers []api.OnlineUser
 	for uuid, ipSet := range h.onlineIPs {
 		user, ok := h.users[uuid]
@@ -216,6 +224,13 @@ func (h *Hysteria2Service) collectUsage() ([]api.UserTraffic, []api.OnlineUser, 
 			onlineUsers = append(onlineUsers, api.OnlineUser{UID: user.UID, IP: ip})
 		}
 	}
+
+	// Clear online IPs and last active tracking after collection
+	// This prevents zombie connections from accumulating over time
+	// Similar to limiter.GetOnlineDevice() which calls inboundInfo.UserOnlineIP.Delete(email)
+	// Only IPs that are actively used in the next reporting cycle will be tracked again
+	h.onlineIPs = make(map[string]map[string]struct{})
+	h.ipLastActive = make(map[string]map[string]time.Time)
 
 	return uts, onlineUsers, snapshot
 }

@@ -3,6 +3,7 @@ package hysteria2
 import (
 	"fmt"
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -112,6 +113,13 @@ func (l *hyEventLogger) Disconnect(addr net.Addr, id string, err error) {
 				delete(l.svc.onlineIPs, id)
 			}
 		}
+		// Also remove from ipLastActive
+		if activeMap, ok := l.svc.ipLastActive[id]; ok {
+			delete(activeMap, host)
+			if len(activeMap) == 0 {
+				delete(l.svc.ipLastActive, id)
+			}
+		}
 		l.svc.mu.Unlock()
 	}
 
@@ -125,8 +133,13 @@ func (l *hyEventLogger) Disconnect(addr net.Addr, id string, err error) {
 
 func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 	remote := ""
+	host := ""
 	if addr != nil {
 		remote = addr.String()
+		host = remote
+		if h, _, err := net.SplitHostPort(remote); err == nil {
+			host = h
+		}
 	}
 
 	var (
@@ -141,6 +154,15 @@ func (l *hyEventLogger) TCPRequest(addr net.Addr, id, reqAddr string) {
 		l.svc.mu.RLock()
 		user, ok = l.svc.users[id]
 		l.svc.mu.RUnlock()
+
+		// Update last active time for this IP
+		if ok && host != "" && id != "" {
+			l.svc.mu.Lock()
+			if activeMap, exists := l.svc.ipLastActive[id]; exists {
+				activeMap[host] = time.Now()
+			}
+			l.svc.mu.Unlock()
+		}
 	}
 
 	if ok {
@@ -172,8 +194,13 @@ func (l *hyEventLogger) TCPError(addr net.Addr, id, reqAddr string, err error) {
 
 func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, reqAddr string) {
 	remote := ""
+	host := ""
 	if addr != nil {
 		remote = addr.String()
+		host = remote
+		if h, _, err := net.SplitHostPort(remote); err == nil {
+			host = h
+		}
 	}
 
 	var (
@@ -188,6 +215,15 @@ func (l *hyEventLogger) UDPRequest(addr net.Addr, id string, sessionID uint32, r
 		l.svc.mu.RLock()
 		user, ok = l.svc.users[id]
 		l.svc.mu.RUnlock()
+
+		// Update last active time for this IP
+		if ok && host != "" && id != "" {
+			l.svc.mu.Lock()
+			if activeMap, exists := l.svc.ipLastActive[id]; exists {
+				activeMap[host] = time.Now()
+			}
+			l.svc.mu.Unlock()
+		}
 	}
 
 	if ok {

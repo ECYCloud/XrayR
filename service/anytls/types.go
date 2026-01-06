@@ -33,11 +33,12 @@ type AnyTLSService struct {
 	rules *rule.Manager
 
 	mu           sync.RWMutex
-	users        map[string]userRecord          // authKey -> user
-	traffic      map[string]*userTraffic        // authKey -> counters
-	onlineIPs    map[string]map[string]struct{} // authKey -> set of IPs
-	authUsers    []option.AnyTLSUser            // users for sing-anytls authentication
-	rateLimiters map[string]*rate.Limiter       // authKey -> per-user speed limiter
+	users        map[string]userRecord           // authKey -> user
+	traffic      map[string]*userTraffic         // authKey -> counters
+	onlineIPs    map[string]map[string]struct{}  // authKey -> set of IPs
+	ipLastActive map[string]map[string]time.Time // authKey -> ip -> last active time
+	authUsers    []option.AnyTLSUser             // users for sing-anytls authentication
+	rateLimiters map[string]*rate.Limiter        // authKey -> per-user speed limiter
 
 	// reloadMu prevents concurrent rebuilds of the underlying sing-box
 	// instance when node configuration or certificates change.

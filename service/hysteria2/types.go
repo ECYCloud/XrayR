@@ -31,12 +31,13 @@ type Hysteria2Service struct {
 	rules *rule.Manager
 
 	mu           sync.RWMutex
-	users        map[string]userRecord          // uuid -> user
-	traffic      map[string]*userTraffic        // uuid -> counters
-	overLimit    map[string]bool                // uuid -> over device limit
-	onlineIPs    map[string]map[string]struct{} // uuid -> set of IPs
-	blockedIDs   map[string]bool                // connection id -> blocked by audit
-	rateLimiters map[string]*rate.Limiter       // uuid -> per-user speed limiter
+	users        map[string]userRecord           // uuid -> user
+	traffic      map[string]*userTraffic         // uuid -> counters
+	overLimit    map[string]bool                 // uuid -> over device limit
+	onlineIPs    map[string]map[string]struct{}  // uuid -> set of IPs
+	ipLastActive map[string]map[string]time.Time // uuid -> ip -> last active time
+	blockedIDs   map[string]bool                 // connection id -> blocked by audit
+	rateLimiters map[string]*rate.Limiter        // uuid -> per-user speed limiter
 
 	// reloadMu serializes hot-reload operations (node / cert changes) so that
 	// we never rebuild the underlying Hysteria2 server concurrently from

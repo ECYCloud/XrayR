@@ -68,6 +68,13 @@ func (c *connCounter) Close() error {
 				delete(c.svc.onlineIPs, c.user)
 			}
 		}
+		// Also remove from ipLastActive
+		if activeMap, ok := c.svc.ipLastActive[c.user]; ok && host != "" {
+			delete(activeMap, host)
+			if len(activeMap) == 0 {
+				delete(c.svc.ipLastActive, c.user)
+			}
+		}
 		c.svc.mu.Unlock()
 	}
 	return c.Conn.Close()
@@ -88,6 +95,13 @@ func (c *packetConnCounter) Close() error {
 			delete(ips, c.host)
 			if len(ips) == 0 {
 				delete(c.svc.onlineIPs, c.user)
+			}
+		}
+		// Also remove from ipLastActive
+		if activeMap, ok := c.svc.ipLastActive[c.user]; ok {
+			delete(activeMap, c.host)
+			if len(activeMap) == 0 {
+				delete(c.svc.ipLastActive, c.user)
 			}
 		}
 		c.svc.mu.Unlock()

@@ -24,13 +24,14 @@ func New(apiClient api.API, cfg *controller.Config) *TuicService {
 		"ID":   clientInfo.NodeID,
 	})
 	return &TuicService{
-		apiClient: apiClient,
-		config:    cfg,
-		logger:    logger,
-		rules:     rule.New(),
-		users:     make(map[string]userRecord),
-		traffic:   make(map[string]*userTraffic),
-		onlineIPs: make(map[string]map[string]struct{}),
+		apiClient:    apiClient,
+		config:       cfg,
+		logger:       logger,
+		rules:        rule.New(),
+		users:        make(map[string]userRecord),
+		traffic:      make(map[string]*userTraffic),
+		onlineIPs:    make(map[string]map[string]struct{}),
+		ipLastActive: make(map[string]map[string]time.Time),
 	}
 }
 

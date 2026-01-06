@@ -2,6 +2,7 @@ package hysteria2
 
 import (
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -46,6 +47,13 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 		a.svc.onlineIPs[auth] = ipSet
 	}
 
+	// Initialize ipLastActive map for this user if not exists
+	activeMap, ok := a.svc.ipLastActive[auth]
+	if !ok {
+		activeMap = make(map[string]time.Time)
+		a.svc.ipLastActive[auth] = activeMap
+	}
+
 	if _, exists := ipSet[host]; !exists {
 		// New device
 		if user.DeviceLimit > 0 && len(ipSet) >= user.DeviceLimit {
@@ -58,6 +66,9 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 		}
 		ipSet[host] = struct{}{}
 	}
+
+	// Update last active time for this IP
+	activeMap[host] = time.Now()
 
 	return true, auth
 }
