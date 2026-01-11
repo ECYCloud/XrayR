@@ -7,6 +7,8 @@ import (
 	"net"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing/common/buf"
+	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/time/rate"
@@ -92,6 +94,41 @@ type packetConnCounter struct {
 	user    string
 	host    string
 	blocked bool
+	limiter *rate.Limiter
+}
+
+// ReadPacket implements N.PacketReader to count upload traffic (user -> proxy).
+func (c *packetConnCounter) ReadPacket(buffer *buf.Buffer) (destination M.Socksaddr, err error) {
+	if c.blocked {
+		return M.Socksaddr{}, io.EOF
+	}
+	destination, err = c.PacketConn.ReadPacket(buffer)
+	n := buffer.Len()
+	if n > 0 && c.svc != nil {
+		c.svc.addTraffic(c.user, int64(n), 0)
+		c.svc.updateOnlineIPSimple(c.user, c.host)
+		if c.limiter != nil {
+			_ = c.limiter.WaitN(context.Background(), n)
+		}
+	}
+	return destination, err
+}
+
+// WritePacket implements N.PacketWriter to count download traffic (proxy -> user).
+func (c *packetConnCounter) WritePacket(buffer *buf.Buffer, destination M.Socksaddr) error {
+	if c.blocked {
+		return io.EOF
+	}
+	n := buffer.Len()
+	err := c.PacketConn.WritePacket(buffer, destination)
+	if err == nil && n > 0 && c.svc != nil {
+		c.svc.addTraffic(c.user, 0, int64(n))
+		c.svc.updateOnlineIPSimple(c.user, c.host)
+		if c.limiter != nil {
+			_ = c.limiter.WaitN(context.Background(), n)
+		}
+	}
+	return err
 }
 
 func (c *packetConnCounter) Close() error {
@@ -276,10 +313,18 @@ func (t *tuicTracker) RoutedPacketConnection(_ context.Context, conn N.PacketCon
 		blocked = true
 	}
 
+	// Attach per-user rate limiter if configured.
+	var limiter *rate.Limiter
+	t.svc.mu.RLock()
+	if t.svc.rateLimiters != nil {
+		limiter = t.svc.rateLimiters[m.User]
+	}
+	t.svc.mu.RUnlock()
+
 	if blocked {
 		_ = conn.Close()
-		return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host, blocked: true}
+		return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host, blocked: true, limiter: limiter}
 	}
 
-	return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host}
+	return &packetConnCounter{PacketConn: conn, svc: t.svc, user: m.User, host: host, limiter: limiter}
 }

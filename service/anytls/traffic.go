@@ -206,6 +206,31 @@ func (s *AnyTLSService) updateOnlineIP(uuid string, addr net.Addr) {
 	}
 }
 
+// updateOnlineIPSimple re-adds an IP (already parsed) to the onlineIPs map.
+// This is used for UDP connections where the host is already extracted.
+func (s *AnyTLSService) updateOnlineIPSimple(uuid, host string) {
+	if host == "" || uuid == "" {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Re-add IP to onlineIPs (in case it was cleared by collectUsage)
+	if ipSet, exists := s.onlineIPs[uuid]; exists {
+		ipSet[host] = struct{}{}
+	} else {
+		s.onlineIPs[uuid] = map[string]struct{}{host: {}}
+	}
+
+	// Update last active time
+	if activeMap, exists := s.ipLastActive[uuid]; exists {
+		activeMap[host] = time.Now()
+	} else {
+		s.ipLastActive[uuid] = map[string]time.Time{host: time.Now()}
+	}
+}
+
 func (s *AnyTLSService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[string]userTraffic) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
