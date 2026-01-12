@@ -47,18 +47,18 @@ func isXrayRManagedTag(tag string) bool {
 	return false
 }
 
-// dataPathWrapper wraps outbound.Handler to enforce device limit, user/node speed limit,
-// audit rules and ensure userland path is used for stats.
+// dataPathWrapper wraps outbound.Handler to enforce audit rules and ensure
+// userland path is used for stats. Rate limiting and device limit are handled
+// in mydispatcher/default.go:getLink() to avoid double-application of limits.
 type dataPathWrapper struct {
 	outbound.Handler
-	pm      policy.Manager
-	sm      stats.Manager
-	limiter *limiter.Limiter
+	pm policy.Manager
+	sm stats.Manager
 	// ruleMgr provides audit detection
 	ruleMgr interface {
 		Detect(tag string, destination string, email string, srcIP string) bool
 	}
-	// tag identifies this node/inbound tag for limiter and rules
+	// tag identifies this node/inbound tag for audit rules
 	tag string
 	// obm allows us to look up the correct outbound handler by tag, so we can
 	// enforce "same node in, same node out" routing without touching xray-core
@@ -109,7 +109,7 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 							"reroute_outbound":  h.Tag(),
 						}).Info("same-node routing: rerouting to outbound with matching tag")
 						// Delegate to the correct handler and stop processing in current wrapper.
-						// The correct wrapper will handle audit/limiter with the right node tag.
+						// The correct wrapper will handle audit rules with the right node tag.
 						h.Dispatch(ctx, link)
 						return
 					}
@@ -135,7 +135,9 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 	}
 
 	// --- Now we're in the correct wrapper (inTag matches w.tag) -------------
-	// Perform audit and rate limiting with the correct node tag.
+	// Perform audit check with the correct node tag.
+	// NOTE: Rate limiting and device limit are handled in mydispatcher/default.go:getLink()
+	// to avoid double-application of limits. We only perform audit rule check here.
 	if sess := session.InboundFromContext(ctx); sess != nil && sess.User != nil {
 		email := sess.User.Email
 		srcIP := sess.Source.Address.IP().String()
@@ -146,7 +148,7 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 			destStr = ob.Target.String()
 		}
 
-		// Use the wrapper's tag as node identifier; email is formatted as email|uid.
+		// Use the wrapper's tag as node identifier; email is formatted as Tag|UID.
 		nodeTag := w.tag
 
 		// Audit check: reject immediately on hit
@@ -163,19 +165,6 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 				common.Close(link.Writer)
 				common.Interrupt(link.Reader)
 				return
-			}
-		}
-
-		// Device limit and rate limit
-		if w.limiter != nil && email != "" {
-			if bucket, ok, reject := w.limiter.GetUserBucket(nodeTag, email, srcIP); reject {
-				common.Close(link.Writer)
-				common.Interrupt(link.Reader)
-				return
-			} else if ok && bucket != nil {
-				// Limit uplink and downlink: wrap Reader and Writer
-				link.Reader = w.limiter.RateReader(link.Reader, bucket)
-				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
 			}
 		}
 	}
@@ -213,16 +202,17 @@ func (c *Controller) addOutbound(config *core.OutboundHandlerConfig) error {
 	if !ok {
 		return fmt.Errorf("not an InboundHandler: %s", err)
 	}
-	// Wrap outbound handler to enforce audit/device limit/rate limit, keep stats
-	// path, and enforce "same node in, same node out" semantics.
+	// Wrap outbound handler to enforce audit rules, keep stats path, and enforce
+	// "same node in, same node out" semantics.
+	// NOTE: Rate limiting and device limit are handled in mydispatcher/default.go:getLink()
+	// to avoid double-application of limits.
 	wrapper := &dataPathWrapper{
 		Handler: handler,
 		pm:      c.pm,
 		sm:      c.stm,
-		limiter: c.dispatcher.Limiter,
 		ruleMgr: c.dispatcher.RuleManager,
 		// Each controller instance has a unique Tag derived from NodeID, so using
-		// c.Tag here ensures per-node isolation for limiter/rules *and* routing.
+		// c.Tag here ensures per-node isolation for audit rules *and* routing.
 		tag: c.Tag,
 		obm: c.obm,
 	}
