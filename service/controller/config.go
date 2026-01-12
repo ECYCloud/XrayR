@@ -20,6 +20,12 @@ type Config struct {
 	AutoSpeedLimitConfig    *AutoSpeedLimitConfig            `mapstructure:"AutoSpeedLimitConfig"`
 	GlobalDeviceLimitConfig *limiter.GlobalDeviceLimitConfig `mapstructure:"GlobalDeviceLimitConfig"`
 	FallBackConfigs         []*FallBackConfig                `mapstructure:"FallBackConfigs"`
+	// ConnIdle is the connection idle timeout in seconds.
+	// When a connection has no activity for this duration, it will be closed.
+	// This is mainly used by sing-box based services (AnyTLS, TUIC) to match
+	// the behavior of Xray-core's ConnectionIdle policy.
+	// Default: 30 seconds.
+	ConnIdle uint32 `mapstructure:"ConnIdle"`
 }
 
 type AutoSpeedLimitConfig struct {
