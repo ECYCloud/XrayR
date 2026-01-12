@@ -307,14 +307,6 @@ func (p *Panel) Start() {
 				log.Panicf("Read Controller Config Failed")
 			}
 		}
-		// Copy ConnIdle from ConnectionConfig to controllerConfig for sing-box services.
-		// This allows AnyTLS/TUIC to use the same idle timeout as Xray-core.
-		if p.panelConfig.ConnectionConfig != nil && p.panelConfig.ConnectionConfig.ConnIdle > 0 {
-			controllerConfig.ConnIdle = p.panelConfig.ConnectionConfig.ConnIdle
-		} else {
-			// Default to 30 seconds if not configured
-			controllerConfig.ConnIdle = 30
-		}
 		// 证书相关配置改为完全由面板下发和自动推导，不再支持通过
 		// config.yml 的 ControllerConfig.CertConfig 手动填写。为避免旧
 		// 配置产生干扰，这里直接丢弃来自本地配置文件的 CertConfig。

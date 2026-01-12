@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing/common/buf"
@@ -19,32 +16,18 @@ import (
 
 type connCounter struct {
 	net.Conn
-	svc         *AnyTLSService
-	user        string
-	blocked     bool
-	limiter     *rate.Limiter
-	idleTimeout time.Duration
-	lastActive  atomic.Int64 // Unix timestamp in nanoseconds
-	closeOnce   sync.Once
-	closed      atomic.Bool
-}
-
-// updateActivity records the current time as last activity and refreshes the read deadline.
-func (c *connCounter) updateActivity() {
-	c.lastActive.Store(time.Now().UnixNano())
-	// Refresh read deadline to extend the idle timeout
-	if c.idleTimeout > 0 {
-		_ = c.Conn.SetReadDeadline(time.Now().Add(c.idleTimeout))
-	}
+	svc     *AnyTLSService
+	user    string
+	blocked bool
+	limiter *rate.Limiter
 }
 
 func (c *connCounter) Read(p []byte) (int, error) {
-	if c.blocked || c.closed.Load() {
+	if c.blocked {
 		return 0, io.EOF
 	}
 	n, err := c.Conn.Read(p)
 	if n > 0 && c.svc != nil {
-		c.updateActivity()
 		c.svc.addTraffic(c.user, int64(n), 0)
 		// Re-add IP to onlineIPs on every traffic event
 		// This ensures active connections are tracked even after collectUsage() clears the maps
@@ -57,12 +40,11 @@ func (c *connCounter) Read(p []byte) (int, error) {
 }
 
 func (c *connCounter) Write(p []byte) (int, error) {
-	if c.blocked || c.closed.Load() {
+	if c.blocked {
 		return 0, io.EOF
 	}
 	n, err := c.Conn.Write(p)
 	if n > 0 && c.svc != nil {
-		c.updateActivity()
 		c.svc.addTraffic(c.user, 0, int64(n))
 		// Re-add IP to onlineIPs on every traffic event
 		// This ensures active connections are tracked even after collectUsage() clears the maps
@@ -75,40 +57,35 @@ func (c *connCounter) Write(p []byte) (int, error) {
 }
 
 func (c *connCounter) Close() error {
-	var err error
-	c.closeOnce.Do(func() {
-		c.closed.Store(true)
-		if c.svc != nil && c.user != "" {
-			remote := ""
-			if addr := c.Conn.RemoteAddr(); addr != nil {
-				remote = addr.String()
-			}
-			host := remote
-			if host != "" {
-				if h, _, e := net.SplitHostPort(host); e == nil {
-					host = h
-				}
-			}
-
-			c.svc.mu.Lock()
-			if ips, ok := c.svc.onlineIPs[c.user]; ok && host != "" {
-				delete(ips, host)
-				if len(ips) == 0 {
-					delete(c.svc.onlineIPs, c.user)
-				}
-			}
-			// Also remove from ipLastActive
-			if activeMap, ok := c.svc.ipLastActive[c.user]; ok && host != "" {
-				delete(activeMap, host)
-				if len(activeMap) == 0 {
-					delete(c.svc.ipLastActive, c.user)
-				}
-			}
-			c.svc.mu.Unlock()
+	if c.svc != nil && c.user != "" {
+		remote := ""
+		if addr := c.Conn.RemoteAddr(); addr != nil {
+			remote = addr.String()
 		}
-		err = c.Conn.Close()
-	})
-	return err
+		host := remote
+		if host != "" {
+			if h, _, err := net.SplitHostPort(host); err == nil {
+				host = h
+			}
+		}
+
+		c.svc.mu.Lock()
+		if ips, ok := c.svc.onlineIPs[c.user]; ok && host != "" {
+			delete(ips, host)
+			if len(ips) == 0 {
+				delete(c.svc.onlineIPs, c.user)
+			}
+		}
+		// Also remove from ipLastActive
+		if activeMap, ok := c.svc.ipLastActive[c.user]; ok && host != "" {
+			delete(activeMap, host)
+			if len(activeMap) == 0 {
+				delete(c.svc.ipLastActive, c.user)
+			}
+		}
+		c.svc.mu.Unlock()
+	}
+	return c.Conn.Close()
 }
 
 type packetConnCounter struct {
@@ -263,26 +240,7 @@ func (t *anyTLSTracker) RoutedConnection(_ context.Context, conn net.Conn, m ada
 		return &connCounter{Conn: conn, svc: t.svc, user: m.User, blocked: true, limiter: limiter}
 	}
 
-	// Get idle timeout from config (in seconds), default to 30s
-	idleTimeout := time.Duration(30) * time.Second
-	if t.svc.config != nil && t.svc.config.ConnIdle > 0 {
-		idleTimeout = time.Duration(t.svc.config.ConnIdle) * time.Second
-	}
-
-	cc := &connCounter{
-		Conn:        conn,
-		svc:         t.svc,
-		user:        m.User,
-		limiter:     limiter,
-		idleTimeout: idleTimeout,
-	}
-	// Initialize lastActive and set initial read deadline
-	cc.lastActive.Store(time.Now().UnixNano())
-	if idleTimeout > 0 {
-		_ = conn.SetReadDeadline(time.Now().Add(idleTimeout))
-	}
-
-	return cc
+	return &connCounter{Conn: conn, svc: t.svc, user: m.User, limiter: limiter}
 }
 
 func (t *anyTLSTracker) RoutedPacketConnection(_ context.Context, conn N.PacketConn, m adapter.InboundContext, _ adapter.Rule, _ adapter.Outbound) N.PacketConn {
