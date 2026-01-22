@@ -55,8 +55,7 @@ type Controller struct {
 	startAt      time.Time
 	logger       *log.Entry
 	// Media check related fields
-	mediaChecker       *mediacheck.Checker
-	mediaCheckInterval int // Check interval in minutes, 0 means disabled
+	mediaChecker *mediacheck.Checker
 }
 
 type periodicTask struct {
@@ -763,49 +762,51 @@ func (c *Controller) certMonitor() error {
 	return nil
 }
 
-// initMediaCheck initializes the media check functionality by fetching
-// configuration from the panel and setting up the periodic task.
+// initMediaCheck initializes the media check periodic task.
+// The actual configuration is fetched dynamically before each check (hot reload).
 func (c *Controller) initMediaCheck() error {
-	// Fetch media check configuration from panel
-	config, err := c.apiClient.GetMediaCheckConfig()
-	if err != nil {
-		c.logger.Printf("Failed to get media check config: %v", err)
-		return nil // Don't fail the controller start
-	}
-
-	if !config.Enabled || config.CheckInterval <= 0 {
-		c.logger.Printf("Media check is disabled or interval is invalid")
-		return nil
-	}
-
-	c.mediaCheckInterval = config.CheckInterval
 	c.mediaChecker = mediacheck.NewChecker(c.logger)
 
-	// Add media check periodic task
+	// Add media check periodic task with a base interval of 1 minute
+	// The actual check execution is controlled by mediaCheckMonitor based on panel config
 	c.tasks = append(c.tasks, periodicTask{
 		tag: "media check",
 		Periodic: &task.Periodic{
-			Interval: time.Duration(c.mediaCheckInterval) * time.Minute,
+			Interval: 1 * time.Minute,
 			Execute:  c.mediaCheckMonitor,
 		}})
 
-	c.logger.Printf("Media check initialized with interval: %d minutes", c.mediaCheckInterval)
-
-	// Run initial check immediately
-	go func() {
-		time.Sleep(10 * time.Second) // Wait for node to fully start
-		if err := c.mediaCheckMonitor(); err != nil {
-			c.logger.Printf("Initial media check failed: %v", err)
-		}
-	}()
+	c.logger.Printf("Media check task initialized (config will be fetched from panel)")
 
 	return nil
 }
 
 // mediaCheckMonitor performs the streaming media unlock check and reports results.
+// It fetches the latest configuration from panel before each check (hot reload).
 func (c *Controller) mediaCheckMonitor() error {
 	if c.mediaChecker == nil {
 		return nil
+	}
+
+	// Fetch latest config from panel (hot reload)
+	config, err := c.apiClient.GetMediaCheckConfig()
+	if err != nil {
+		c.logger.Printf("Failed to get media check config: %v", err)
+		return nil
+	}
+
+	// Check if media check is enabled
+	if !config.Enabled {
+		return nil
+	}
+
+	// Check if it's time to run based on interval
+	// We use a simple approach: only run if current minute is divisible by interval
+	if config.CheckInterval > 0 {
+		currentMinute := time.Now().Minute() + time.Now().Hour()*60
+		if currentMinute%config.CheckInterval != 0 {
+			return nil
+		}
 	}
 
 	c.logger.Printf("Starting media unlock check for node %d", c.nodeInfo.NodeID)
