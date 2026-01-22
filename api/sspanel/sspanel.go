@@ -1167,3 +1167,52 @@ func compareVersion(version1, version2 string) int {
 	}
 	return 0
 }
+
+// GetMediaCheckConfig fetches the streaming media check configuration from the panel.
+// This includes whether media check is enabled and the check interval in minutes.
+func (c *APIClient) GetMediaCheckConfig() (*api.MediaCheckConfig, error) {
+	path := "/mod_mu/media/config"
+	res, err := c.client.R().
+		SetQueryParam("node_id", strconv.Itoa(c.NodeID)).
+		SetResult(&Response{}).
+		ForceContentType("application/json").
+		Get(path)
+
+	response, err := c.parseResponse(res, path, err)
+	if err != nil {
+		return nil, err
+	}
+
+	configResponse := new(MediaCheckConfigResponse)
+	if err := json.Unmarshal(response.Data, configResponse); err != nil {
+		return nil, fmt.Errorf("unmarshal media check config failed: %s", err)
+	}
+
+	return &api.MediaCheckConfig{
+		Enabled:       configResponse.Enabled,
+		CheckInterval: configResponse.CheckInterval,
+	}, nil
+}
+
+// ReportMediaCheckResult reports the streaming media unlock check results to the panel.
+// The result parameter should be a JSON string containing all check results.
+func (c *APIClient) ReportMediaCheckResult(result string) error {
+	path := "/mod_mu/media/report"
+	postData := &MediaCheckResultPost{
+		NodeID: c.NodeID,
+		Result: result,
+	}
+
+	res, err := c.client.R().
+		SetBody(postData).
+		SetResult(&Response{}).
+		ForceContentType("application/json").
+		Post(path)
+
+	_, err = c.parseResponse(res, path, err)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

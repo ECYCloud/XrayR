@@ -22,6 +22,7 @@ import (
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	"github.com/ECYCloud/XrayR/common/limiter"
+	"github.com/ECYCloud/XrayR/common/mediacheck"
 	"github.com/ECYCloud/XrayR/common/mylego"
 	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
@@ -53,6 +54,9 @@ type Controller struct {
 	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
+	// Media check related fields
+	mediaChecker       *mediacheck.Checker
+	mediaCheckInterval int // Check interval in minutes, 0 means disabled
 }
 
 type periodicTask struct {
@@ -203,6 +207,11 @@ func (c *Controller) Start() error {
 				Interval: time.Duration(c.config.UpdatePeriodic) * time.Second * 60,
 				Execute:  c.certMonitor,
 			}})
+	}
+
+	// Initialize media check if enabled
+	if err := c.initMediaCheck(); err != nil {
+		c.logger.Printf("Failed to initialize media check: %v", err)
 	}
 
 	// Start periodic tasks
@@ -751,5 +760,70 @@ func (c *Controller) certMonitor() error {
 			}
 		}
 	}
+	return nil
+}
+
+// initMediaCheck initializes the media check functionality by fetching
+// configuration from the panel and setting up the periodic task.
+func (c *Controller) initMediaCheck() error {
+	// Fetch media check configuration from panel
+	config, err := c.apiClient.GetMediaCheckConfig()
+	if err != nil {
+		c.logger.Printf("Failed to get media check config: %v", err)
+		return nil // Don't fail the controller start
+	}
+
+	if !config.Enabled || config.CheckInterval <= 0 {
+		c.logger.Printf("Media check is disabled or interval is invalid")
+		return nil
+	}
+
+	c.mediaCheckInterval = config.CheckInterval
+	c.mediaChecker = mediacheck.NewChecker(c.logger)
+
+	// Add media check periodic task
+	c.tasks = append(c.tasks, periodicTask{
+		tag: "media check",
+		Periodic: &task.Periodic{
+			Interval: time.Duration(c.mediaCheckInterval) * time.Minute,
+			Execute:  c.mediaCheckMonitor,
+		}})
+
+	c.logger.Printf("Media check initialized with interval: %d minutes", c.mediaCheckInterval)
+
+	// Run initial check immediately
+	go func() {
+		time.Sleep(10 * time.Second) // Wait for node to fully start
+		if err := c.mediaCheckMonitor(); err != nil {
+			c.logger.Printf("Initial media check failed: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// mediaCheckMonitor performs the streaming media unlock check and reports results.
+func (c *Controller) mediaCheckMonitor() error {
+	if c.mediaChecker == nil {
+		return nil
+	}
+
+	c.logger.Printf("Starting media unlock check for node %d", c.nodeInfo.NodeID)
+
+	// Run all checks
+	results := c.mediaChecker.RunAllChecks()
+
+	// Convert results to JSON
+	resultJSON := results.ToJSON()
+
+	c.logger.Printf("Media check results: %s", resultJSON)
+
+	// Report results to panel
+	if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
+		c.logger.Printf("Failed to report media check results: %v", err)
+		return err
+	}
+
+	c.logger.Printf("Media check results reported successfully for node %d", c.nodeInfo.NodeID)
 	return nil
 }

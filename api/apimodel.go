@@ -183,3 +183,12 @@ type REALITYConfig struct {
 	MaxTimeDiff      uint64
 	ShortIds         []string
 }
+
+// MediaCheckConfig represents the streaming media check configuration
+// retrieved from the panel.
+type MediaCheckConfig struct {
+	// Enabled indicates whether media check is enabled
+	Enabled bool `json:"enabled"`
+	// CheckInterval is the interval between checks in minutes
+	CheckInterval int `json:"check_interval"`
+}

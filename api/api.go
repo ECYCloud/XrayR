@@ -18,4 +18,10 @@ type API interface {
 	GetNodeRule() (ruleList *[]DetectRule, err error)
 	ReportIllegal(detectResultList *[]DetectResult) (err error)
 	Debug()
+	// GetMediaCheckConfig returns the streaming media check configuration
+	// from the panel, including the check interval in minutes.
+	GetMediaCheckConfig() (config *MediaCheckConfig, err error)
+	// ReportMediaCheckResult reports the streaming media unlock check results
+	// to the panel for the current node.
+	ReportMediaCheckResult(result string) error
 }

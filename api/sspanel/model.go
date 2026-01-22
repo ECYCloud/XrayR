@@ -129,3 +129,15 @@ type REALITYConfig struct {
 	MaxTimeDiff      uint64   `json:"max_time_diff,omitempty"`
 	ShortIds         []string `json:"short_ids,omitempty"`
 }
+
+// MediaCheckConfigResponse is the response of media check config
+type MediaCheckConfigResponse struct {
+	Enabled       bool `json:"enabled"`
+	CheckInterval int  `json:"check_interval"`
+}
+
+// MediaCheckResultPost is the data structure for posting media check result
+type MediaCheckResultPost struct {
+	NodeID int    `json:"node_id"`
+	Result string `json:"result"`
+}
