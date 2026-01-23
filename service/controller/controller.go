@@ -816,11 +816,14 @@ func (c *Controller) mediaCheckMonitor() error {
 		return nil
 	}
 
-	// Check if enough time has passed since last report for this node
 	now := time.Now()
 	intervalDuration := time.Duration(config.CheckInterval) * time.Minute
 
-	if !c.lastMediaCheckTime.IsZero() {
+	// Check if this node has reported before
+	isFirstReport := c.lastMediaCheckTime.IsZero()
+
+	// For subsequent reports, check if enough time has passed
+	if !isFirstReport {
 		elapsed := now.Sub(c.lastMediaCheckTime)
 		if elapsed < intervalDuration {
 			// Not enough time has passed, skip this report

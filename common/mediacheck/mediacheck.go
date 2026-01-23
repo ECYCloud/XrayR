@@ -71,6 +71,7 @@ func NewChecker(logger *log.Entry) *Checker {
 
 // GetCachedResults returns cached results if still valid, otherwise returns nil
 // checkInterval is in minutes
+// Cache is valid for 5 minutes to allow all nodes to report before expiring
 func GetCachedResults(checkInterval int) *MediaCheckResults {
 	globalCacheMutex.RLock()
 	defer globalCacheMutex.RUnlock()
@@ -79,9 +80,10 @@ func GetCachedResults(checkInterval int) *MediaCheckResults {
 		return nil
 	}
 
-	// Check if cache is still valid
-	intervalDuration := time.Duration(checkInterval) * time.Minute
-	if time.Since(globalCacheTime) < intervalDuration {
+	// Cache is valid for 5 minutes (enough time for all nodes to report)
+	// This is independent of checkInterval to ensure all nodes can use the same results
+	cacheValidDuration := 5 * time.Minute
+	if time.Since(globalCacheTime) < cacheValidDuration {
 		return globalCachedResults
 	}
 

@@ -298,7 +298,7 @@ func (c *Checker) doCheckDisneyPlus() string {
 }
 
 // checkHBOMax checks HBO Max availability
-// Based on csm.sh MediaUnlockTest_HBOMax - uses response headers to get countryCode
+// Based on csm.sh MediaUnlockTest_HBOMax - uses curl -sLi to get headers and content
 func (c *Checker) checkHBOMax() string {
 	// Retry up to 3 times for consistency
 	for retry := 0; retry < 3; retry++ {
@@ -336,7 +336,7 @@ func (c *Checker) doCheckHBOMax() string {
 	}
 	defer resp.Body.Close()
 
-	// Check for network error
+	// Check for network error (http code 000 in csm.sh)
 	if resp.StatusCode == 0 {
 		return "Unknown"
 	}
@@ -348,7 +348,7 @@ func (c *Checker) doCheckHBOMax() string {
 
 	content := string(body)
 
-	// Extract available country list from page
+	// Extract available country list from page (csm.sh pattern)
 	// Pattern: "url":"/xx/xx" where first xx is country code
 	re := regexp.MustCompile(`"url":"/([a-z]{2})/[a-z]{2}"`)
 	matches := re.FindAllStringSubmatch(content, -1)
@@ -358,10 +358,9 @@ func (c *Checker) doCheckHBOMax() string {
 			countrySet[strings.ToUpper(m[1])] = true
 		}
 	}
-	countrySet["US"] = true // US is always in the list
+	countrySet["US"] = true // US is always in the list (csm.sh: countryList="${countryList} US")
 
-	// Extract region from countryCode parameter
-	// Pattern: countryCode=XX
+	// Extract region from countryCode parameter (csm.sh: grep -woP 'countryCode=\K[A-Z]{2}')
 	reRegion := regexp.MustCompile(`countryCode=([A-Z]{2})`)
 	regionMatches := reRegion.FindStringSubmatch(content)
 	region := ""
@@ -369,26 +368,17 @@ func (c *Checker) doCheckHBOMax() string {
 		region = regionMatches[1]
 	}
 
-	// If region not found in body, check response headers/cookies
-	if region == "" {
-		// Try to find in Set-Cookie header
-		for _, cookie := range resp.Cookies() {
-			if strings.Contains(cookie.Name, "country") || strings.Contains(cookie.Name, "region") {
-				if len(cookie.Value) == 2 {
-					region = strings.ToUpper(cookie.Value)
-					break
-				}
-			}
-		}
-	}
+	// csm.sh logic:
+	// if [ -z "$region" ]; then echo "Failed (Error: Country Code Not Found)"
+	// if [ -n "$isUnavailable" ]; then echo "Yes (Region: ${region})"
+	// else echo "No"
 
-	// If still no region, return error
 	if region == "" {
 		c.logger.Debugf("HBO Max: Country code not found")
 		return "Unknown"
 	}
 
-	// Check if region is in the supported country list
+	// Check if region is in the supported country list (isUnavailable in csm.sh)
 	if countrySet[region] {
 		return formatResult("Yes", region)
 	}
