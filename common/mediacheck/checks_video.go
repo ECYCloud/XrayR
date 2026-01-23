@@ -298,7 +298,7 @@ func (c *Checker) doCheckDisneyPlus() string {
 }
 
 // checkHBOMax checks HBO Max availability
-// Based on csm.sh MediaUnlockTest_HBOMax
+// Based on csm.sh MediaUnlockTest_HBOMax - uses response headers to get countryCode
 func (c *Checker) checkHBOMax() string {
 	// Retry up to 3 times for consistency
 	for retry := 0; retry < 3; retry++ {
@@ -312,15 +312,44 @@ func (c *Checker) checkHBOMax() string {
 }
 
 func (c *Checker) doCheckHBOMax() string {
-	body, code, err := c.httpGet("https://www.max.com/", nil)
-	if err != nil || code == 0 {
+	// Create a client that follows redirects (like curl -sLi)
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
+	req, err := http.NewRequest("GET", "https://www.max.com/", nil)
+	if err != nil {
+		return "Unknown"
+	}
+	req.Header.Set("User-Agent", UA_BROWSER)
+
+	resp, err := client.Do(req)
+	if err != nil {
 		c.logger.Debugf("HBO Max check failed: %v", err)
+		return "Unknown"
+	}
+	defer resp.Body.Close()
+
+	// Check for network error
+	if resp.StatusCode == 0 {
+		return "Unknown"
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "Unknown"
 	}
 
 	content := string(body)
 
 	// Extract available country list from page
+	// Pattern: "url":"/xx/xx" where first xx is country code
 	re := regexp.MustCompile(`"url":"/([a-z]{2})/[a-z]{2}"`)
 	matches := re.FindAllStringSubmatch(content, -1)
 	countrySet := make(map[string]bool)
@@ -331,7 +360,8 @@ func (c *Checker) doCheckHBOMax() string {
 	}
 	countrySet["US"] = true // US is always in the list
 
-	// Extract region
+	// Extract region from countryCode parameter
+	// Pattern: countryCode=XX
 	reRegion := regexp.MustCompile(`countryCode=([A-Z]{2})`)
 	regionMatches := reRegion.FindStringSubmatch(content)
 	region := ""
@@ -339,10 +369,26 @@ func (c *Checker) doCheckHBOMax() string {
 		region = regionMatches[1]
 	}
 
+	// If region not found in body, check response headers/cookies
 	if region == "" {
+		// Try to find in Set-Cookie header
+		for _, cookie := range resp.Cookies() {
+			if strings.Contains(cookie.Name, "country") || strings.Contains(cookie.Name, "region") {
+				if len(cookie.Value) == 2 {
+					region = strings.ToUpper(cookie.Value)
+					break
+				}
+			}
+		}
+	}
+
+	// If still no region, return error
+	if region == "" {
+		c.logger.Debugf("HBO Max: Country code not found")
 		return "Unknown"
 	}
 
+	// Check if region is in the supported country list
 	if countrySet[region] {
 		return formatResult("Yes", region)
 	}
@@ -365,14 +411,25 @@ func (c *Checker) checkTikTok() string {
 }
 
 func (c *Checker) doCheckTikTok() string {
-	// First attempt: simple request
+	// First attempt: simple request (like tiktok.sh first curl)
 	req1, err := http.NewRequest("GET", "https://www.tiktok.com/", nil)
 	if err != nil {
 		return "Unknown"
 	}
 	req1.Header.Set("User-Agent", UA_BROWSER)
 
-	resp1, err := c.client.Do(req1)
+	// Use a client that follows redirects
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
+	resp1, err := client.Do(req1)
 	if err != nil {
 		c.logger.Debugf("TikTok check failed: %v", err)
 		return "Unknown"
@@ -386,14 +443,24 @@ func (c *Checker) doCheckTikTok() string {
 
 	content1 := string(body1)
 
-	// Extract region from first attempt
-	re := regexp.MustCompile(`"region":"([A-Z]{2})"`)
+	// Extract region from first attempt using the same pattern as tiktok.sh
+	// tiktok.sh: grep '"region":' | sed 's/.*"region"//' | cut -f2 -d'"'
+	// This matches "region":"XX" pattern
+	re := regexp.MustCompile(`"region"\s*:\s*"([A-Z]{2})"`)
 	matches := re.FindStringSubmatch(content1)
 	if len(matches) > 1 {
 		return formatResult("Yes", matches[1])
 	}
 
+	// Also try without strict case (some responses might have lowercase)
+	reLower := regexp.MustCompile(`"region"\s*:\s*"([a-zA-Z]{2})"`)
+	matchesLower := reLower.FindStringSubmatch(content1)
+	if len(matchesLower) > 1 {
+		return formatResult("Yes", strings.ToUpper(matchesLower[1]))
+	}
+
 	// Second attempt: with Accept headers and gzip (for IDC IPs)
+	// This matches tiktok.sh second curl with -H "Accept-Encoding: gzip"
 	req2, err := http.NewRequest("GET", "https://www.tiktok.com/", nil)
 	if err != nil {
 		return "No"
@@ -403,7 +470,7 @@ func (c *Checker) doCheckTikTok() string {
 	req2.Header.Set("Accept-Encoding", "gzip")
 	req2.Header.Set("Accept-Language", "en")
 
-	resp2, err := c.client.Do(req2)
+	resp2, err := client.Do(req2)
 	if err != nil {
 		return "No"
 	}
@@ -435,6 +502,12 @@ func (c *Checker) doCheckTikTok() string {
 	if len(matches2) > 1 {
 		// IDC IP detected, still works but might be flagged
 		return formatResult("Yes", matches2[1]) + " (IDC)"
+	}
+
+	// Try lowercase pattern
+	matchesLower2 := reLower.FindStringSubmatch(content2)
+	if len(matchesLower2) > 1 {
+		return formatResult("Yes", strings.ToUpper(matchesLower2[1])) + " (IDC)"
 	}
 
 	return "No"

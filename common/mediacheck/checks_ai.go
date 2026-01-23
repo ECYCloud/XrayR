@@ -36,39 +36,79 @@ func (c *Checker) checkAmazonPrime() string {
 }
 
 func (c *Checker) doCheckAmazonPrime() string {
-	body, _, err := c.httpGet("https://www.primevideo.com/", nil)
+	// Create a client that follows redirects (like curl -sL)
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
+	req, err := http.NewRequest("GET", "https://www.primevideo.com", nil)
+	if err != nil {
+		return "Unknown"
+	}
+	req.Header.Set("User-Agent", UA_BROWSER)
+
+	resp, err := client.Do(req)
 	if err != nil {
 		c.logger.Debugf("Amazon Prime check failed: %v", err)
+		return "Unknown"
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return "Unknown"
 	}
 
 	content := string(body)
 
-	// Check if service is restricted
-	isBlocked := strings.Contains(content, "isServiceRestricted")
+	// Check if empty response (network error)
+	if len(content) == 0 {
+		return "Unknown"
+	}
 
-	// Extract region
-	re := regexp.MustCompile(`"currentTerritory":"([A-Z]{2})"`)
+	// Check if service is restricted (case-insensitive)
+	isBlocked := strings.Contains(strings.ToLower(content), "isservicerestricted")
+
+	// Extract region using the exact pattern from csm.sh
+	// Pattern: "currentTerritory":"XX"
+	re := regexp.MustCompile(`"currentTerritory"\s*:\s*"([A-Z]{2})"`)
 	matches := re.FindStringSubmatch(content)
 	region := ""
 	if len(matches) > 1 {
 		region = matches[1]
 	}
 
+	// Logic from csm.sh:
+	// if [ -z "$isBlocked" ] && [ -z "$region" ]; then
+	//     echo "Failed (Error: PAGE ERROR)"
+	// if [ -n "$isBlocked" ]; then
+	//     echo "No (Service Not Available)"
+	// if [ -n "$region" ]; then
+	//     echo "Yes (Region: ${region})"
+
 	// Both empty means page error
 	if !isBlocked && region == "" {
-		return "No"
+		c.logger.Debugf("Amazon Prime: PAGE ERROR - no isBlocked and no region found")
+		return "Unknown"
 	}
 
+	// Service is restricted
 	if isBlocked {
 		return "No"
 	}
 
+	// Region found, service is available
 	if region != "" {
 		return formatResult("Yes", region)
 	}
 
-	return "No"
+	return "Unknown"
 }
 
 // checkOpenAI checks OpenAI/ChatGPT availability
@@ -221,7 +261,7 @@ func (c *Checker) doCheckGemini() string {
 }
 
 // checkClaude checks Claude AI availability
-// Based on csm.sh MediaUnlockTest_Claude
+// Based on csm.sh WebTest_Claude - checks redirect URL, not page content
 func (c *Checker) checkClaude() string {
 	// Retry up to 3 times for consistency
 	for retry := 0; retry < 3; retry++ {
@@ -235,103 +275,52 @@ func (c *Checker) checkClaude() string {
 }
 
 func (c *Checker) doCheckClaude() string {
-	// Request with exact headers from csm.sh
+	// Create a client that follows redirects and tracks the final URL
+	// This matches the csm.sh logic: curl -s -L -o /dev/null -w '%{url_effective}'
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow redirects to be followed
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+
 	req, err := http.NewRequest("GET", "https://claude.ai/", nil)
 	if err != nil {
 		return "Unknown"
 	}
 
 	req.Header.Set("User-Agent", UA_BROWSER)
-	req.Header.Set("Authority", "claude.ai")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Sec-Ch-Ua", UA_SEC_CH_UA)
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	req.Header.Set("Sec-Fetch-Dest", "document")
-	req.Header.Set("Sec-Fetch-Mode", "navigate")
-	req.Header.Set("Sec-Fetch-Site", "none")
-	req.Header.Set("Sec-Fetch-User", "?1")
-	req.Header.Set("Upgrade-Insecure-Requests", "1")
 
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		c.logger.Debugf("Claude check failed: %v", err)
 		return "Unknown"
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "Unknown"
-	}
+	// Get the final URL after all redirects
+	finalURL := resp.Request.URL.String()
 
-	content := string(body)
+	c.logger.Debugf("Claude final URL: %s", finalURL)
 
-	// Check if blocked
-	isBlocked := strings.Contains(strings.ToLower(content), "not available in your country") ||
-		strings.Contains(strings.ToLower(content), "region restricted") ||
-		strings.Contains(strings.ToLower(content), "access denied") ||
-		strings.Contains(strings.ToLower(content), "blocked") ||
-		strings.Contains(strings.ToLower(content), "unavailable")
-
-	if isBlocked {
-		return "No"
-	}
-
-	// Check if Claude/Anthropic is mentioned (page loaded correctly)
-	isAvailable := strings.Contains(strings.ToLower(content), "claude") ||
-		strings.Contains(strings.ToLower(content), "anthropic")
-
-	// Try to extract region using multiple patterns like csm.sh
-	region := ""
-
-	// Method 1: "country":"XX"
-	re1 := regexp.MustCompile(`"country":"([A-Z]{2})"`)
-	if matches := re1.FindStringSubmatch(content); len(matches) > 1 {
-		region = matches[1]
-	}
-
-	// Method 2: "countryCode":"XX"
-	if region == "" {
-		re2 := regexp.MustCompile(`"countryCode":"([A-Z]{2})"`)
-		if matches := re2.FindStringSubmatch(content); len(matches) > 1 {
-			region = matches[1]
-		}
-	}
-
-	// Method 3: "location":"XX"
-	if region == "" {
-		re3 := regexp.MustCompile(`"location":"([A-Z]{2})"`)
-		if matches := re3.FindStringSubmatch(content); len(matches) > 1 {
-			region = matches[1]
-		}
-	}
-
-	// Method 4: Fallback to IP API if region not found
-	if region == "" && isAvailable {
-		ipBody, _, err := c.httpGet("https://api.country.is", nil)
-		if err == nil {
-			reIP := regexp.MustCompile(`"country":"([A-Z]{2})"`)
-			if matches := reIP.FindStringSubmatch(string(ipBody)); len(matches) > 1 {
-				region = matches[1]
-			}
-		}
-	}
-
-	if isAvailable && region != "" {
-		return formatResult("Yes", region)
-	} else if isAvailable {
-		// Try ip-api.com as final fallback
-		ipBody, _, err := c.httpGet("http://ip-api.com/json", nil)
-		if err == nil {
-			reIP := regexp.MustCompile(`"countryCode":"([A-Z]{2})"`)
-			if matches := reIP.FindStringSubmatch(string(ipBody)); len(matches) > 1 {
-				return formatResult("Yes", matches[1])
-			}
-		}
+	// Check the final URL to determine availability
+	// Based on csm.sh: if final URL is "https://claude.ai/" -> Yes
+	// if final URL is "https://www.anthropic.com/app-unavailable-in-region" -> No
+	if finalURL == "https://claude.ai/" || strings.HasPrefix(finalURL, "https://claude.ai/") {
+		// Claude is available, but we don't have region info from this check
 		return "Yes"
 	}
 
-	return "No"
+	if strings.Contains(finalURL, "app-unavailable-in-region") ||
+		strings.Contains(finalURL, "unavailable") ||
+		strings.Contains(finalURL, "anthropic.com") {
+		return "No"
+	}
+
+	// Unknown state
+	return "Unknown"
 }

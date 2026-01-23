@@ -802,19 +802,17 @@ func (c *Controller) mediaCheckMonitor() error {
 	// Fetch latest config from panel (hot reload)
 	config, err := c.apiClient.GetMediaCheckConfig()
 	if err != nil {
-		c.logger.Printf("Node %d: Failed to get media check config: %v", c.nodeInfo.NodeID, err)
+		c.logger.Printf("[MediaCheck] Node %d: Failed to get media check config: %v", c.nodeInfo.NodeID, err)
 		return nil
 	}
 
 	// Check if media check is enabled
 	if !config.Enabled {
-		c.logger.Debugf("Node %d: Media check is disabled", c.nodeInfo.NodeID)
 		return nil
 	}
 
 	// Check if interval is valid
 	if config.CheckInterval <= 0 {
-		c.logger.Debugf("Node %d: Media check interval is invalid (%d)", c.nodeInfo.NodeID, config.CheckInterval)
 		return nil
 	}
 
@@ -837,10 +835,10 @@ func (c *Controller) mediaCheckMonitor() error {
 	if cachedResults != nil {
 		// Use cached results (another node already performed the check)
 		results = cachedResults
-		c.logger.Printf("Node %d: Using cached media check results (interval: %d minutes)", c.nodeInfo.NodeID, config.CheckInterval)
+		c.logger.Printf("[MediaCheck] Node %d: Using cached results", c.nodeInfo.NodeID)
 	} else {
 		// No valid cache, this node performs the actual check
-		c.logger.Printf("Node %d: Starting media unlock check (interval: %d minutes)", c.nodeInfo.NodeID, config.CheckInterval)
+		c.logger.Printf("[MediaCheck] Node %d: Performing actual check (interval: %d min)", c.nodeInfo.NodeID, config.CheckInterval)
 
 		// Run all checks
 		results = c.mediaChecker.RunAllChecks()
@@ -855,14 +853,14 @@ func (c *Controller) mediaCheckMonitor() error {
 	// Convert results to JSON
 	resultJSON := results.ToJSON()
 
-	c.logger.Printf("Node %d: Media check results: %s", c.nodeInfo.NodeID, resultJSON)
+	c.logger.Printf("[MediaCheck] Node %d: Results: %s", c.nodeInfo.NodeID, resultJSON)
 
 	// Report results to panel (each node reports independently)
 	if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
-		c.logger.Printf("Node %d: Failed to report media check results: %v", c.nodeInfo.NodeID, err)
+		c.logger.Printf("[MediaCheck] Node %d: Failed to report: %v", c.nodeInfo.NodeID, err)
 		return err
 	}
 
-	c.logger.Printf("Node %d: Media check results reported successfully", c.nodeInfo.NodeID)
+	c.logger.Printf("[MediaCheck] Node %d: Reported successfully", c.nodeInfo.NodeID)
 	return nil
 }
