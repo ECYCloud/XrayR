@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,14 @@ const (
 	UA_BROWSER   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36"
 	UA_SEC_CH_UA = `"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"`
 	UA_DALVIK    = "Dalvik/2.1.0 (Linux; U; Android 9; ALP-AL00 Build/HUAWEIALP-AL00)"
+)
+
+// Global cache for media check results (shared across all nodes on the same server)
+var (
+	globalCacheMutex    sync.RWMutex
+	globalCachedResults *MediaCheckResults
+	globalCacheTime     time.Time
+	globalCacheInterval time.Duration
 )
 
 // MediaCheckResult represents the result of a single media check
@@ -58,6 +67,35 @@ func NewChecker(logger *log.Entry) *Checker {
 		},
 		logger: logger,
 	}
+}
+
+// GetCachedResults returns cached results if still valid, otherwise returns nil
+// checkInterval is in minutes
+func GetCachedResults(checkInterval int) *MediaCheckResults {
+	globalCacheMutex.RLock()
+	defer globalCacheMutex.RUnlock()
+
+	if globalCachedResults == nil {
+		return nil
+	}
+
+	// Check if cache is still valid
+	intervalDuration := time.Duration(checkInterval) * time.Minute
+	if time.Since(globalCacheTime) < intervalDuration {
+		return globalCachedResults
+	}
+
+	return nil
+}
+
+// SetCachedResults stores the results in global cache
+func SetCachedResults(results *MediaCheckResults, checkInterval int) {
+	globalCacheMutex.Lock()
+	defer globalCacheMutex.Unlock()
+
+	globalCachedResults = results
+	globalCacheTime = time.Now()
+	globalCacheInterval = time.Duration(checkInterval) * time.Minute
 }
 
 // RunAllChecks performs all media unlock checks and returns the results

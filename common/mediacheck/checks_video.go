@@ -7,11 +7,27 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
+
+// Netflix cookies from csm.sh for better detection accuracy
+const netflixCookies = "flwssn=d2c72c47-49e9-48da-b7a2-2dc6d7ca9fcf; nfvdid=BQFmAAEBEMZa4XMYVzVGf9-kQ1HXumtAKsCyuBZU4QStC6CGEGIVznjNuuTerLAG8v2-9V_kYhg5uxTB5_yyrmqc02U5l1Ts74Qquezc9AE-LZKTo3kY3g%3D%3D; SecureNetflixId=v%3D3%26mac%3DAQEAEQABABSQHKcR1d0sLV0WTu0lL-BO63TKCCHAkeY.%26dt%3D1745376277212; NetflixId=v%3D3%26ct%3DBgjHlOvcAxLAAZuNS4_CJHy9NKJPzUV-9gElzTlTsmDS1B59TycR-fue7f6q7X9JQAOLttD7OnlldUtnYWXL7VUfu9q4pA0gruZKVIhScTYI1GKbyiEqKaULAXOt0PHQzgRLVTNVoXkxcbu7MYG4wm1870fZkd5qrDOEseZv2WIVk4xIeNL87EZh1vS3RZU3e-qWy2tSmfSNUC-FVDGwxbI6-hk3Zg2MbcWYd70-ghohcCSZp5WHAGXg_xWVC7FHM3aOUVTGwRCU1RgGIg4KDKGr_wsTRRw6HWKqeA..; gsid=09bb180e-fbb1-4bf6-adcb-a3fa1236e323"
 
 // checkYouTubePremium checks YouTube Premium availability
 // Based on csm.sh MediaUnlockTest_YouTube_Premium
 func (c *Checker) checkYouTubePremium() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckYouTubePremium()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckYouTubePremium() string {
 	// Request with specific headers and cookies like csm.sh
 	req, err := http.NewRequest("GET", "https://www.youtube.com/premium", nil)
 	if err != nil {
@@ -66,25 +82,45 @@ func (c *Checker) checkYouTubePremium() string {
 }
 
 // checkNetflix checks Netflix availability
-// Based on csm.sh MediaUnlockTest_Netflix
+// Based on csm.sh MediaUnlockTest_Netflix with full cookies and headers
 func (c *Checker) checkNetflix() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckNetflix()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckNetflix() string {
+	// Full headers matching csm.sh exactly
 	headers := map[string]string{
-		"Host":               "www.netflix.com",
-		"Accept-Language":    "en-US,en;q=0.9",
-		"Sec-Ch-Ua":          UA_SEC_CH_UA,
-		"Sec-Ch-Ua-Mobile":   "?0",
-		"Sec-Ch-Ua-Platform": `"Windows"`,
-		"Sec-Fetch-Site":     "none",
-		"Sec-Fetch-Mode":     "navigate",
-		"Sec-Fetch-User":     "?1",
-		"Sec-Fetch-Dest":     "document",
+		"Accept":                     "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+		"Accept-Language":            "en-US,en;q=0.9",
+		"Cookie":                     netflixCookies,
+		"Priority":                   "u=0, i",
+		"Sec-Ch-Ua":                  `"Microsoft Edge";v="135", "Not-A.Brand";v="8", "Chromium";v="135"`,
+		"Sec-Ch-Ua-Mobile":           "?0",
+		"Sec-Ch-Ua-Model":            `""`,
+		"Sec-Ch-Ua-Platform":         `"Windows"`,
+		"Sec-Ch-Ua-Platform-Version": `"15.0.0"`,
+		"Sec-Fetch-Dest":             "document",
+		"Sec-Fetch-Mode":             "navigate",
+		"Sec-Fetch-Site":             "none",
+		"Sec-Fetch-User":             "?1",
+		"Upgrade-Insecure-Requests":  "1",
 	}
 
 	// Check LEGO Ninjago (self-produced content) - title/81280792
-	_, code1, err1 := c.httpGetWithHeaders("https://www.netflix.com/title/81280792", headers)
+	body1, _, err1 := c.httpGetWithHeaders("https://www.netflix.com/title/81280792", headers)
+	content1 := string(body1)
 
 	// Check Breaking Bad (licensed content) - title/70143836
-	_, code2, err2 := c.httpGetWithHeaders("https://www.netflix.com/title/70143836", headers)
+	body2, _, err2 := c.httpGetWithHeaders("https://www.netflix.com/title/70143836", headers)
+	content2 := string(body2)
 
 	// Network error
 	if err1 != nil && err2 != nil {
@@ -92,27 +128,29 @@ func (c *Checker) checkNetflix() string {
 		return "Unknown"
 	}
 
-	// Both 404 means only self-produced content (仅限自制)
-	if code1 == 404 && code2 == 404 {
-		return "No (仅限自制)"
+	// Check for "Oh no!" which indicates content is not available
+	result1HasOhNo := strings.Contains(content1, "Oh no!")
+	result2HasOhNo := strings.Contains(content2, "Oh no!")
+
+	// Both have "Oh no!" means only originals (self-produced content only)
+	if result1HasOhNo && result2HasOhNo {
+		return "Originals Only"
 	}
 
-	// 403 means blocked
-	if code1 == 403 || code2 == 403 {
-		return "No"
-	}
-
-	// 200 means available - get region
-	if code1 == 200 || code2 == 200 {
-		body, _, err := c.httpGetWithHeaders("https://www.netflix.com/", headers)
-		if err == nil {
-			content := string(body)
-			// Extract region: grep -oP '"id":"\K[^"]+' | grep -E '^[A-Z]{2}$'
-			re := regexp.MustCompile(`"id":"([A-Z]{2})"`)
-			matches := re.FindStringSubmatch(content)
-			if len(matches) > 1 {
-				return formatResult("Yes", matches[1])
-			}
+	// At least one doesn't have "Oh no!" means full access
+	if !result1HasOhNo || !result2HasOhNo {
+		// Extract region from response
+		// Pattern: "id":"XX" where XX is country code followed by "countryName"
+		re := regexp.MustCompile(`"id":"([A-Z]{2})"[^}]*"countryName"`)
+		matches := re.FindStringSubmatch(content1)
+		if len(matches) > 1 {
+			return formatResult("Yes", matches[1])
+		}
+		// Fallback pattern
+		re2 := regexp.MustCompile(`"id":"([A-Z]{2})"`)
+		matches2 := re2.FindStringSubmatch(content1)
+		if len(matches2) > 1 {
+			return formatResult("Yes", matches2[1])
 		}
 		return "Yes"
 	}
@@ -123,6 +161,18 @@ func (c *Checker) checkNetflix() string {
 // checkDisneyPlus checks Disney+ availability
 // Based on csm.sh MediaUnlockTest_DisneyPlus
 func (c *Checker) checkDisneyPlus() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckDisneyPlus()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckDisneyPlus() string {
 	// Step 1: Get device assertion token
 	deviceReq, err := http.NewRequest("POST", "https://disney.api.edge.bamgrid.com/devices", strings.NewReader(`{"deviceFamily":"browser","applicationRuntime":"chrome","deviceProfile":"windows","attributes":{}}`))
 	if err != nil {
@@ -140,8 +190,14 @@ func (c *Checker) checkDisneyPlus() string {
 	}
 	defer deviceResp.Body.Close()
 
+	// Check for 403 ERROR first
 	deviceBody, _ := io.ReadAll(deviceResp.Body)
-	var deviceResult map[string]interface{}
+	deviceContent := string(deviceBody)
+	if strings.Contains(deviceContent, "403 ERROR") {
+		return "No (IP Banned)"
+	}
+
+	var deviceResult map[string]any
 	if err := json.Unmarshal(deviceBody, &deviceResult); err != nil {
 		return "Unknown"
 	}
@@ -176,7 +232,7 @@ func (c *Checker) checkDisneyPlus() string {
 		return "No"
 	}
 
-	var tokenResult map[string]interface{}
+	var tokenResult map[string]any
 	if err := json.Unmarshal(tokenBody, &tokenResult); err != nil {
 		return "Unknown"
 	}
@@ -244,6 +300,18 @@ func (c *Checker) checkDisneyPlus() string {
 // checkHBOMax checks HBO Max availability
 // Based on csm.sh MediaUnlockTest_HBOMax
 func (c *Checker) checkHBOMax() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckHBOMax()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckHBOMax() string {
 	body, code, err := c.httpGet("https://www.max.com/", nil)
 	if err != nil || code == 0 {
 		c.logger.Debugf("HBO Max check failed: %v", err)
@@ -285,6 +353,18 @@ func (c *Checker) checkHBOMax() string {
 // checkTikTok checks TikTok availability
 // Based on https://github.com/lmc999/TikTokCheck/blob/main/tiktok.sh
 func (c *Checker) checkTikTok() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckTikTok()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckTikTok() string {
 	// First attempt: simple request
 	req1, err := http.NewRequest("GET", "https://www.tiktok.com/", nil)
 	if err != nil {

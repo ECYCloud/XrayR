@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -55,7 +56,9 @@ type Controller struct {
 	startAt      time.Time
 	logger       *log.Entry
 	// Media check related fields
-	mediaChecker *mediacheck.Checker
+	mediaChecker       *mediacheck.Checker
+	lastMediaCheckTime time.Time
+	mediaCheckMutex    sync.Mutex
 }
 
 type periodicTask struct {
@@ -766,6 +769,8 @@ func (c *Controller) certMonitor() error {
 // The actual configuration is fetched dynamically before each check (hot reload).
 func (c *Controller) initMediaCheck() error {
 	c.mediaChecker = mediacheck.NewChecker(c.logger)
+	// Initialize lastMediaCheckTime to zero so first check runs immediately after startup
+	c.lastMediaCheckTime = time.Time{}
 
 	// Add media check periodic task with a base interval of 1 minute
 	// The actual check execution is controlled by mediaCheckMonitor based on panel config
@@ -776,55 +781,88 @@ func (c *Controller) initMediaCheck() error {
 			Execute:  c.mediaCheckMonitor,
 		}})
 
-	c.logger.Printf("Media check task initialized (config will be fetched from panel)")
+	c.logger.Printf("Media check task initialized for node %d (config will be fetched from panel)", c.nodeInfo.NodeID)
 
 	return nil
 }
 
 // mediaCheckMonitor performs the streaming media unlock check and reports results.
 // It fetches the latest configuration from panel before each check (hot reload).
+// Uses global cache to avoid redundant checks across multiple nodes on the same server.
+// Only the first node performs the actual check, other nodes reuse the cached results.
 func (c *Controller) mediaCheckMonitor() error {
 	if c.mediaChecker == nil {
 		return nil
 	}
 
+	// Use mutex to prevent concurrent execution within this node
+	c.mediaCheckMutex.Lock()
+	defer c.mediaCheckMutex.Unlock()
+
 	// Fetch latest config from panel (hot reload)
 	config, err := c.apiClient.GetMediaCheckConfig()
 	if err != nil {
-		c.logger.Printf("Failed to get media check config: %v", err)
+		c.logger.Printf("Node %d: Failed to get media check config: %v", c.nodeInfo.NodeID, err)
 		return nil
 	}
 
 	// Check if media check is enabled
 	if !config.Enabled {
+		c.logger.Debugf("Node %d: Media check is disabled", c.nodeInfo.NodeID)
 		return nil
 	}
 
-	// Check if it's time to run based on interval
-	// We use a simple approach: only run if current minute is divisible by interval
-	if config.CheckInterval > 0 {
-		currentMinute := time.Now().Minute() + time.Now().Hour()*60
-		if currentMinute%config.CheckInterval != 0 {
+	// Check if interval is valid
+	if config.CheckInterval <= 0 {
+		c.logger.Debugf("Node %d: Media check interval is invalid (%d)", c.nodeInfo.NodeID, config.CheckInterval)
+		return nil
+	}
+
+	// Check if enough time has passed since last report for this node
+	now := time.Now()
+	intervalDuration := time.Duration(config.CheckInterval) * time.Minute
+
+	if !c.lastMediaCheckTime.IsZero() {
+		elapsed := now.Sub(c.lastMediaCheckTime)
+		if elapsed < intervalDuration {
+			// Not enough time has passed, skip this report
 			return nil
 		}
 	}
 
-	c.logger.Printf("Starting media unlock check for node %d", c.nodeInfo.NodeID)
+	// Try to get cached results from global cache (shared across all nodes)
+	cachedResults := mediacheck.GetCachedResults(config.CheckInterval)
 
-	// Run all checks
-	results := c.mediaChecker.RunAllChecks()
+	var results *mediacheck.MediaCheckResults
+	if cachedResults != nil {
+		// Use cached results (another node already performed the check)
+		results = cachedResults
+		c.logger.Printf("Node %d: Using cached media check results (interval: %d minutes)", c.nodeInfo.NodeID, config.CheckInterval)
+	} else {
+		// No valid cache, this node performs the actual check
+		c.logger.Printf("Node %d: Starting media unlock check (interval: %d minutes)", c.nodeInfo.NodeID, config.CheckInterval)
+
+		// Run all checks
+		results = c.mediaChecker.RunAllChecks()
+
+		// Store results in global cache for other nodes to use
+		mediacheck.SetCachedResults(results, config.CheckInterval)
+	}
+
+	// Update last report time for this node
+	c.lastMediaCheckTime = now
 
 	// Convert results to JSON
 	resultJSON := results.ToJSON()
 
-	c.logger.Printf("Media check results: %s", resultJSON)
+	c.logger.Printf("Node %d: Media check results: %s", c.nodeInfo.NodeID, resultJSON)
 
-	// Report results to panel
+	// Report results to panel (each node reports independently)
 	if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
-		c.logger.Printf("Failed to report media check results: %v", err)
+		c.logger.Printf("Node %d: Failed to report media check results: %v", c.nodeInfo.NodeID, err)
 		return err
 	}
 
-	c.logger.Printf("Media check results reported successfully for node %d", c.nodeInfo.NodeID)
+	c.logger.Printf("Node %d: Media check results reported successfully", c.nodeInfo.NodeID)
 	return nil
 }

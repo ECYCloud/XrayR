@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // OpenAI supported countries list from csm.sh
@@ -23,6 +24,18 @@ var openAISupportedCountries = []string{
 // checkAmazonPrime checks Amazon Prime Video availability
 // Based on csm.sh MediaUnlockTest_PrimeVideo
 func (c *Checker) checkAmazonPrime() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckAmazonPrime()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckAmazonPrime() string {
 	body, _, err := c.httpGet("https://www.primevideo.com/", nil)
 	if err != nil {
 		c.logger.Debugf("Amazon Prime check failed: %v", err)
@@ -61,6 +74,18 @@ func (c *Checker) checkAmazonPrime() string {
 // checkOpenAI checks OpenAI/ChatGPT availability
 // Based on csm.sh MediaUnlockTest_OpenAI
 func (c *Checker) checkOpenAI() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckOpenAI()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckOpenAI() string {
 	// Check compliance API with exact headers from csm.sh
 	req1, err := http.NewRequest("GET", "https://api.openai.com/compliance/cookie_requirements", nil)
 	if err != nil {
@@ -151,6 +176,18 @@ func (c *Checker) checkOpenAI() string {
 // checkGemini checks Google Gemini availability
 // Based on csm.sh MediaUnlockTest_Gemini
 func (c *Checker) checkGemini() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckGemini()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckGemini() string {
 	body, _, err := c.httpGet("https://gemini.google.com/", nil)
 	if err != nil {
 		c.logger.Debugf("Gemini check failed: %v", err)
@@ -186,6 +223,18 @@ func (c *Checker) checkGemini() string {
 // checkClaude checks Claude AI availability
 // Based on csm.sh MediaUnlockTest_Claude
 func (c *Checker) checkClaude() string {
+	// Retry up to 3 times for consistency
+	for retry := 0; retry < 3; retry++ {
+		result := c.doCheckClaude()
+		if result != "Unknown" {
+			return result
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "Unknown"
+}
+
+func (c *Checker) doCheckClaude() string {
 	// Request with exact headers from csm.sh
 	req, err := http.NewRequest("GET", "https://claude.ai/", nil)
 	if err != nil {
