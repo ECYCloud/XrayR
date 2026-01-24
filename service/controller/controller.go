@@ -789,9 +789,8 @@ func (c *Controller) initMediaCheck() error {
 // mediaCheckMonitor performs the streaming media unlock check and reports results.
 // It fetches the latest configuration from panel before each check (hot reload).
 // Uses global cache to avoid redundant checks across multiple nodes on the same server.
-// Only the first node performs the actual check, other nodes reuse the cached results.
+// Only the first node performs the actual check, other nodes immediately use the cached results.
 // Checks are executed at whole hours (00:00, 01:00, etc.) based on the configured interval.
-// Time window is extended to 5 minutes to allow all nodes to complete their checks.
 func (c *Controller) mediaCheckMonitor() error {
 	if c.mediaChecker == nil {
 		return nil
@@ -821,24 +820,6 @@ func (c *Controller) mediaCheckMonitor() error {
 	now := time.Now()
 	currentHour := now.Hour()
 
-	// Check if current time is at a whole hour (within the first 5 minutes)
-	// Extended from 1 minute to 5 minutes to allow all nodes to complete their checks
-	// This ensures checks run at 00:00-00:05, 01:00-01:05, 02:00-02:05, etc.
-	if now.Minute() >= 5 {
-		return nil
-	}
-
-	// Check if current hour matches the interval pattern
-	// For interval=1: every hour (0, 1, 2, 3, ...)
-	// For interval=2: every 2 hours (0, 2, 4, 6, ...)
-	// For interval=3: every 3 hours (0, 3, 6, 9, ...)
-	// For interval=6: every 6 hours (0, 6, 12, 18)
-	// For interval=12: every 12 hours (0, 12)
-	// For interval=24: once a day (0)
-	if currentHour%config.CheckInterval != 0 {
-		return nil
-	}
-
 	// Check if this node has already reported in this hour
 	if !c.lastMediaCheckTime.IsZero() {
 		lastHour := c.lastMediaCheckTime.Hour()
@@ -851,39 +832,84 @@ func (c *Controller) mediaCheckMonitor() error {
 		}
 	}
 
-	// Try to get cached results from global cache (shared across all nodes)
-	cachedResults := mediacheck.GetCachedResults(config.CheckInterval)
+	// Check if current hour matches the interval pattern
+	if currentHour%config.CheckInterval != 0 {
+		return nil
+	}
 
-	var results *mediacheck.MediaCheckResults
+	// Check if current time is at a whole hour (within the first 10 minutes)
+	if now.Minute() >= 10 {
+		return nil
+	}
+
+	// Try to get cached results first (another node may have already completed the check)
+	cachedResults := mediacheck.GetCachedResults()
 	if cachedResults != nil {
-		// Use cached results (another node already performed the check)
-		results = cachedResults
-		c.logger.Printf("[MediaCheck] Node %d: Using cached results", c.nodeInfo.NodeID)
-	} else {
-		// No valid cache, this node performs the actual check using csm.sh script
+		// Use cached results immediately
+		c.logger.Printf("[MediaCheck] Node %d: Using cached results from another node", c.nodeInfo.NodeID)
+		c.lastMediaCheckTime = now
+		resultJSON := cachedResults.ToJSON()
+		c.logger.Printf("[MediaCheck] Node %d: Results: %s", c.nodeInfo.NodeID, resultJSON)
+		if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
+			c.logger.Printf("[MediaCheck] Node %d: Failed to report: %v", c.nodeInfo.NodeID, err)
+			return err
+		}
+		c.logger.Printf("[MediaCheck] Node %d: Reported successfully", c.nodeInfo.NodeID)
+		return nil
+	}
+
+	// Try to acquire the check lock (only one node should perform the actual check)
+	if mediacheck.TryAcquireCheckLock() {
+		// This node will perform the actual check
 		c.logger.Printf("[MediaCheck] Node %d: Performing actual check at %02d:%02d (interval: %d hours)", c.nodeInfo.NodeID, currentHour, now.Minute(), config.CheckInterval)
 
 		// Run all checks (will use csm.sh script)
-		results = c.mediaChecker.RunAllChecks()
+		results := c.mediaChecker.RunAllChecks()
 
-		// Store results in global cache for other nodes to use
-		mediacheck.SetCachedResults(results, config.CheckInterval)
+		// Release the lock
+		mediacheck.ReleaseCheckLock()
+
+		// Store results in global cache (this will also notify waiting nodes)
+		mediacheck.SetCachedResults(results)
+
+		// Update last report time for this node
+		c.lastMediaCheckTime = now
+
+		// Convert results to JSON
+		resultJSON := results.ToJSON()
+		c.logger.Printf("[MediaCheck] Node %d: Results: %s", c.nodeInfo.NodeID, resultJSON)
+
+		// Report results to panel
+		if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
+			c.logger.Printf("[MediaCheck] Node %d: Failed to report: %v", c.nodeInfo.NodeID, err)
+			return err
+		}
+		c.logger.Printf("[MediaCheck] Node %d: Reported successfully", c.nodeInfo.NodeID)
+	} else {
+		// Another node is performing the check, wait for results
+		c.logger.Printf("[MediaCheck] Node %d: Waiting for results from another node...", c.nodeInfo.NodeID)
+
+		// Wait up to 2 minutes for results
+		results := mediacheck.WaitForResults(2 * time.Minute)
+		if results == nil {
+			c.logger.Printf("[MediaCheck] Node %d: Timeout waiting for results", c.nodeInfo.NodeID)
+			return nil
+		}
+
+		// Update last report time for this node
+		c.lastMediaCheckTime = now
+
+		// Convert results to JSON
+		resultJSON := results.ToJSON()
+		c.logger.Printf("[MediaCheck] Node %d: Results: %s", c.nodeInfo.NodeID, resultJSON)
+
+		// Report results to panel
+		if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
+			c.logger.Printf("[MediaCheck] Node %d: Failed to report: %v", c.nodeInfo.NodeID, err)
+			return err
+		}
+		c.logger.Printf("[MediaCheck] Node %d: Reported successfully (from waiting)", c.nodeInfo.NodeID)
 	}
 
-	// Update last report time for this node
-	c.lastMediaCheckTime = now
-
-	// Convert results to JSON
-	resultJSON := results.ToJSON()
-
-	c.logger.Printf("[MediaCheck] Node %d: Results: %s", c.nodeInfo.NodeID, resultJSON)
-
-	// Report results to panel (each node reports independently)
-	if err := c.apiClient.ReportMediaCheckResult(resultJSON); err != nil {
-		c.logger.Printf("[MediaCheck] Node %d: Failed to report: %v", c.nodeInfo.NodeID, err)
-		return err
-	}
-
-	c.logger.Printf("[MediaCheck] Node %d: Reported successfully", c.nodeInfo.NodeID)
 	return nil
 }

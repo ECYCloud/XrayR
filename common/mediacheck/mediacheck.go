@@ -22,13 +22,17 @@ var (
 	globalCacheMutex    sync.RWMutex
 	globalCachedResults *MediaCheckResults
 	globalCacheTime     time.Time
-	globalCacheInterval time.Duration
+	globalCacheHour     int    // The hour when the cache was created
+	globalCacheDate     string // The date when the cache was created
+
+	// Subscribers waiting for detection results
+	subscribersMutex sync.Mutex
+	subscribers      []chan *MediaCheckResults
+	isChecking       bool
 )
 
-// GetCachedResults returns cached results if still valid, otherwise returns nil
-// checkInterval is in hours
-// Cache is valid for 5 minutes to allow all nodes to report before expiring
-func GetCachedResults(checkInterval int) *MediaCheckResults {
+// GetCachedResults returns cached results if still valid for the current hour, otherwise returns nil
+func GetCachedResults() *MediaCheckResults {
 	globalCacheMutex.RLock()
 	defer globalCacheMutex.RUnlock()
 
@@ -36,37 +40,118 @@ func GetCachedResults(checkInterval int) *MediaCheckResults {
 		return nil
 	}
 
-	// Cache is valid for 5 minutes (enough time for all nodes to report)
-	// This is independent of checkInterval to ensure all nodes can use the same results
-	cacheValidDuration := 5 * time.Minute
-	if time.Since(globalCacheTime) < cacheValidDuration {
+	// Cache is valid if it was created in the current hour on the same date
+	now := time.Now()
+	currentHour := now.Hour()
+	currentDate := now.Format("2006-01-02")
+
+	if globalCacheDate == currentDate && globalCacheHour == currentHour {
 		return globalCachedResults
 	}
 
 	return nil
 }
 
-// SetCachedResults stores the results in global cache
-func SetCachedResults(results *MediaCheckResults, checkInterval int) {
+// SetCachedResults stores the results in global cache and notifies all waiting subscribers
+func SetCachedResults(results *MediaCheckResults) {
 	globalCacheMutex.Lock()
-	defer globalCacheMutex.Unlock()
-
+	now := time.Now()
 	globalCachedResults = results
-	globalCacheTime = time.Now()
-	globalCacheInterval = time.Duration(checkInterval) * time.Hour
+	globalCacheTime = now
+	globalCacheHour = now.Hour()
+	globalCacheDate = now.Format("2006-01-02")
+	globalCacheMutex.Unlock()
+
+	// Notify all waiting subscribers
+	notifySubscribers(results)
+}
+
+// WaitForResults waits for detection results from another node
+// Returns the results when available, or nil if timeout
+func WaitForResults(timeout time.Duration) *MediaCheckResults {
+	// First check if results are already available
+	if results := GetCachedResults(); results != nil {
+		return results
+	}
+
+	// Create a channel to receive results
+	ch := make(chan *MediaCheckResults, 1)
+
+	subscribersMutex.Lock()
+	subscribers = append(subscribers, ch)
+	subscribersMutex.Unlock()
+
+	// Wait for results or timeout
+	select {
+	case results := <-ch:
+		return results
+	case <-time.After(timeout):
+		// Remove this subscriber on timeout
+		removeSubscriber(ch)
+		return nil
+	}
+}
+
+// notifySubscribers sends results to all waiting subscribers
+func notifySubscribers(results *MediaCheckResults) {
+	subscribersMutex.Lock()
+	defer subscribersMutex.Unlock()
+
+	for _, ch := range subscribers {
+		select {
+		case ch <- results:
+		default:
+			// Channel full or closed, skip
+		}
+	}
+	// Clear subscribers after notification
+	subscribers = nil
+}
+
+// removeSubscriber removes a subscriber channel from the list
+func removeSubscriber(ch chan *MediaCheckResults) {
+	subscribersMutex.Lock()
+	defer subscribersMutex.Unlock()
+
+	for i, sub := range subscribers {
+		if sub == ch {
+			subscribers = append(subscribers[:i], subscribers[i+1:]...)
+			break
+		}
+	}
+}
+
+// TryAcquireCheckLock tries to acquire the lock for performing detection
+// Returns true if this caller should perform the check, false if another node is already checking
+func TryAcquireCheckLock() bool {
+	subscribersMutex.Lock()
+	defer subscribersMutex.Unlock()
+
+	if isChecking {
+		return false
+	}
+	isChecking = true
+	return true
+}
+
+// ReleaseCheckLock releases the check lock
+func ReleaseCheckLock() {
+	subscribersMutex.Lock()
+	defer subscribersMutex.Unlock()
+	isChecking = false
 }
 
 // MediaCheckResults represents all media check results
 type MediaCheckResults struct {
-	YouTube     string `json:"YouTube"`
-	Netflix     string `json:"Netflix"`
-	DisneyPlus  string `json:"DisneyPlus"`
-	HBOMax      string `json:"HBOMax"`
-	AmazonPrime string `json:"AmazonPrime"`
-	OpenAI      string `json:"OpenAI"`
-	Gemini      string `json:"Gemini"`
-	Claude      string `json:"Claude"`
-	TikTok      string `json:"TikTok"`
+	YouTubePremium string `json:"YouTube_Premium"`
+	Netflix        string `json:"Netflix"`
+	DisneyPlus     string `json:"DisneyPlus"`
+	HBOMax         string `json:"HBOMax"`
+	AmazonPrime    string `json:"AmazonPrime"`
+	OpenAI         string `json:"OpenAI"`
+	Gemini         string `json:"Gemini"`
+	Claude         string `json:"Claude"`
+	TikTok         string `json:"TikTok"`
 }
 
 // Checker performs media unlock checks using embedded csm.sh script
@@ -87,15 +172,15 @@ func NewChecker(logger *log.Entry) *Checker {
 func (c *Checker) RunAllChecks() *MediaCheckResults {
 	// Default results (all Unknown)
 	defaultResults := &MediaCheckResults{
-		YouTube:     "Unknown",
-		Netflix:     "Unknown",
-		DisneyPlus:  "Unknown",
-		HBOMax:      "Unknown",
-		AmazonPrime: "Unknown",
-		OpenAI:      "Unknown",
-		Gemini:      "Unknown",
-		Claude:      "Unknown",
-		TikTok:      "Unknown",
+		YouTubePremium: "Unknown",
+		Netflix:        "Unknown",
+		DisneyPlus:     "Unknown",
+		HBOMax:         "Unknown",
+		AmazonPrime:    "Unknown",
+		OpenAI:         "Unknown",
+		Gemini:         "Unknown",
+		Claude:         "Unknown",
+		TikTok:         "Unknown",
 	}
 
 	// Execute embedded csm.sh script (100% accurate detection)
@@ -167,4 +252,9 @@ func (r *MediaCheckResults) ToJSON() string {
 		return "{}"
 	}
 	return string(data)
+}
+
+// GetCSMScript returns the embedded CSM script content for external use
+func GetCSMScript() string {
+	return CSM_SCRIPT
 }
