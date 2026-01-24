@@ -25,11 +25,85 @@ var (
 	globalCacheHour     int    // The hour when the cache was created
 	globalCacheDate     string // The date when the cache was created
 
-	// Subscribers waiting for detection results
-	subscribersMutex sync.Mutex
-	subscribers      []chan *MediaCheckResults
-	isChecking       bool
+	// Check lock for ensuring only one node performs detection
+	checkLockMutex sync.Mutex
+	isChecking     bool
+
+	// Global node ID registry for multi-node support
+	nodeRegistryMutex sync.RWMutex
+	registeredNodeIDs []int        // All node IDs that should receive results
+	reportedNodeIDs   map[int]bool // Node IDs that have already reported in current hour
+	reportedHour      int          // The hour when reportedNodeIDs was last reset
+	reportedDate      string       // The date when reportedNodeIDs was last reset
 )
+
+// RegisterNodeID registers a node ID for media check result sharing.
+// All registered nodes will receive the same detection results.
+func RegisterNodeID(nodeID int) {
+	nodeRegistryMutex.Lock()
+	defer nodeRegistryMutex.Unlock()
+
+	// Check if already registered
+	for _, id := range registeredNodeIDs {
+		if id == nodeID {
+			return
+		}
+	}
+	registeredNodeIDs = append(registeredNodeIDs, nodeID)
+	log.Infof("[MediaCheck] Registered node %d for shared detection (total: %d nodes)", nodeID, len(registeredNodeIDs))
+}
+
+// GetRegisteredNodeIDs returns all registered node IDs
+func GetRegisteredNodeIDs() []int {
+	nodeRegistryMutex.RLock()
+	defer nodeRegistryMutex.RUnlock()
+
+	result := make([]int, len(registeredNodeIDs))
+	copy(result, registeredNodeIDs)
+	return result
+}
+
+// MarkNodeReported marks a node as having reported in the current hour
+func MarkNodeReported(nodeID int) {
+	nodeRegistryMutex.Lock()
+	defer nodeRegistryMutex.Unlock()
+
+	now := time.Now()
+	currentHour := now.Hour()
+	currentDate := now.Format("2006-01-02")
+
+	// Reset if hour changed
+	if reportedHour != currentHour || reportedDate != currentDate {
+		reportedNodeIDs = make(map[int]bool)
+		reportedHour = currentHour
+		reportedDate = currentDate
+	}
+
+	if reportedNodeIDs == nil {
+		reportedNodeIDs = make(map[int]bool)
+	}
+	reportedNodeIDs[nodeID] = true
+}
+
+// HasNodeReported checks if a node has already reported in the current hour
+func HasNodeReported(nodeID int) bool {
+	nodeRegistryMutex.RLock()
+	defer nodeRegistryMutex.RUnlock()
+
+	now := time.Now()
+	currentHour := now.Hour()
+	currentDate := now.Format("2006-01-02")
+
+	// If hour changed, no one has reported yet
+	if reportedHour != currentHour || reportedDate != currentDate {
+		return false
+	}
+
+	if reportedNodeIDs == nil {
+		return false
+	}
+	return reportedNodeIDs[nodeID]
+}
 
 // GetCachedResults returns cached results if still valid for the current hour, otherwise returns nil
 func GetCachedResults() *MediaCheckResults {
@@ -52,80 +126,23 @@ func GetCachedResults() *MediaCheckResults {
 	return nil
 }
 
-// SetCachedResults stores the results in global cache and notifies all waiting subscribers
+// SetCachedResults stores the results in global cache
 func SetCachedResults(results *MediaCheckResults) {
 	globalCacheMutex.Lock()
+	defer globalCacheMutex.Unlock()
+
 	now := time.Now()
 	globalCachedResults = results
 	globalCacheTime = now
 	globalCacheHour = now.Hour()
 	globalCacheDate = now.Format("2006-01-02")
-	globalCacheMutex.Unlock()
-
-	// Notify all waiting subscribers
-	notifySubscribers(results)
-}
-
-// WaitForResults waits for detection results from another node
-// Returns the results when available, or nil if timeout
-func WaitForResults(timeout time.Duration) *MediaCheckResults {
-	// First check if results are already available
-	if results := GetCachedResults(); results != nil {
-		return results
-	}
-
-	// Create a channel to receive results
-	ch := make(chan *MediaCheckResults, 1)
-
-	subscribersMutex.Lock()
-	subscribers = append(subscribers, ch)
-	subscribersMutex.Unlock()
-
-	// Wait for results or timeout
-	select {
-	case results := <-ch:
-		return results
-	case <-time.After(timeout):
-		// Remove this subscriber on timeout
-		removeSubscriber(ch)
-		return nil
-	}
-}
-
-// notifySubscribers sends results to all waiting subscribers
-func notifySubscribers(results *MediaCheckResults) {
-	subscribersMutex.Lock()
-	defer subscribersMutex.Unlock()
-
-	for _, ch := range subscribers {
-		select {
-		case ch <- results:
-		default:
-			// Channel full or closed, skip
-		}
-	}
-	// Clear subscribers after notification
-	subscribers = nil
-}
-
-// removeSubscriber removes a subscriber channel from the list
-func removeSubscriber(ch chan *MediaCheckResults) {
-	subscribersMutex.Lock()
-	defer subscribersMutex.Unlock()
-
-	for i, sub := range subscribers {
-		if sub == ch {
-			subscribers = append(subscribers[:i], subscribers[i+1:]...)
-			break
-		}
-	}
 }
 
 // TryAcquireCheckLock tries to acquire the lock for performing detection
 // Returns true if this caller should perform the check, false if another node is already checking
 func TryAcquireCheckLock() bool {
-	subscribersMutex.Lock()
-	defer subscribersMutex.Unlock()
+	checkLockMutex.Lock()
+	defer checkLockMutex.Unlock()
 
 	if isChecking {
 		return false
@@ -136,9 +153,16 @@ func TryAcquireCheckLock() bool {
 
 // ReleaseCheckLock releases the check lock
 func ReleaseCheckLock() {
-	subscribersMutex.Lock()
-	defer subscribersMutex.Unlock()
+	checkLockMutex.Lock()
+	defer checkLockMutex.Unlock()
 	isChecking = false
+}
+
+// IsChecking returns whether a check is currently in progress
+func IsChecking() bool {
+	checkLockMutex.Lock()
+	defer checkLockMutex.Unlock()
+	return isChecking
 }
 
 // MediaCheckResults represents all media check results

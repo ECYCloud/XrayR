@@ -24,4 +24,7 @@ type API interface {
 	// ReportMediaCheckResult reports the streaming media unlock check results
 	// to the panel for the current node.
 	ReportMediaCheckResult(result string) error
+	// ReportMediaCheckResultForNode reports the streaming media unlock check results
+	// to the panel for a specific node ID.
+	ReportMediaCheckResultForNode(nodeID int, result string) error
 }

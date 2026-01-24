@@ -1197,9 +1197,15 @@ func (c *APIClient) GetMediaCheckConfig() (*api.MediaCheckConfig, error) {
 // ReportMediaCheckResult reports the streaming media unlock check results to the panel.
 // The result parameter should be a JSON string containing all check results.
 func (c *APIClient) ReportMediaCheckResult(result string) error {
+	return c.ReportMediaCheckResultForNode(c.NodeID, result)
+}
+
+// ReportMediaCheckResultForNode reports the streaming media unlock check results for a specific node.
+// This allows one node to report results for multiple nodes (e.g., when using shared detection).
+func (c *APIClient) ReportMediaCheckResultForNode(nodeID int, result string) error {
 	path := "/mod_mu/media/report"
 	postData := &MediaCheckResultPost{
-		NodeID: c.NodeID,
+		NodeID: nodeID,
 		Result: result,
 	}
 
