@@ -189,6 +189,6 @@ type REALITYConfig struct {
 type MediaCheckConfig struct {
 	// Enabled indicates whether media check is enabled
 	Enabled bool `json:"enabled"`
-	// CheckInterval is the interval between checks in minutes
+	// CheckInterval is the interval between checks in hours
 	CheckInterval int `json:"check_interval"`
 }

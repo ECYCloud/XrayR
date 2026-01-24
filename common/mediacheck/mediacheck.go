@@ -1,26 +1,20 @@
 // Package mediacheck provides streaming media unlock detection functionality.
 // It checks various streaming services (Netflix, YouTube Premium, Disney+, etc.)
 // and reports the results to the panel.
+// Detection logic is 100% based on csm.sh script from:
+// https://github.com/ECYCloud/check-stream-media
+// The script is embedded locally and executed without remote download.
+// NO FALLBACK - only uses the embedded csm.sh script for 100% accuracy.
 package mediacheck
 
 import (
 	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
-	"regexp"
-	"strings"
+	"os"
+	"os/exec"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
-)
-
-// User-Agent constants matching csm.sh
-const (
-	UA_BROWSER   = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.87 Safari/537.36"
-	UA_SEC_CH_UA = `"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"`
-	UA_DALVIK    = "Dalvik/2.1.0 (Linux; U; Android 9; ALP-AL00 Build/HUAWEIALP-AL00)"
 )
 
 // Global cache for media check results (shared across all nodes on the same server)
@@ -31,46 +25,8 @@ var (
 	globalCacheInterval time.Duration
 )
 
-// MediaCheckResult represents the result of a single media check
-type MediaCheckResult struct {
-	Status string `json:"status"` // "Yes", "No", "Unknown"
-	Region string `json:"region,omitempty"`
-}
-
-// MediaCheckResults represents all media check results
-type MediaCheckResults struct {
-	YouTube     string `json:"YouTube"`
-	Netflix     string `json:"Netflix"`
-	DisneyPlus  string `json:"DisneyPlus"`
-	HBOMax      string `json:"HBOMax"`
-	AmazonPrime string `json:"AmazonPrime"`
-	OpenAI      string `json:"OpenAI"`
-	Gemini      string `json:"Gemini"`
-	Claude      string `json:"Claude"`
-	TikTok      string `json:"TikTok"`
-}
-
-// Checker performs media unlock checks
-type Checker struct {
-	client *http.Client
-	logger *log.Entry
-}
-
-// NewChecker creates a new media checker
-func NewChecker(logger *log.Entry) *Checker {
-	return &Checker{
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		logger: logger,
-	}
-}
-
 // GetCachedResults returns cached results if still valid, otherwise returns nil
-// checkInterval is in minutes
+// checkInterval is in hours
 // Cache is valid for 5 minutes to allow all nodes to report before expiring
 func GetCachedResults(checkInterval int) *MediaCheckResults {
 	globalCacheMutex.RLock()
@@ -97,12 +53,40 @@ func SetCachedResults(results *MediaCheckResults, checkInterval int) {
 
 	globalCachedResults = results
 	globalCacheTime = time.Now()
-	globalCacheInterval = time.Duration(checkInterval) * time.Minute
+	globalCacheInterval = time.Duration(checkInterval) * time.Hour
 }
 
-// RunAllChecks performs all media unlock checks and returns the results
+// MediaCheckResults represents all media check results
+type MediaCheckResults struct {
+	YouTube     string `json:"YouTube"`
+	Netflix     string `json:"Netflix"`
+	DisneyPlus  string `json:"DisneyPlus"`
+	HBOMax      string `json:"HBOMax"`
+	AmazonPrime string `json:"AmazonPrime"`
+	OpenAI      string `json:"OpenAI"`
+	Gemini      string `json:"Gemini"`
+	Claude      string `json:"Claude"`
+	TikTok      string `json:"TikTok"`
+}
+
+// Checker performs media unlock checks using embedded csm.sh script
+type Checker struct {
+	logger *log.Entry
+}
+
+// NewChecker creates a new media checker
+func NewChecker(logger *log.Entry) *Checker {
+	return &Checker{
+		logger: logger,
+	}
+}
+
+// RunAllChecks performs all media unlock checks by executing embedded csm.sh script
+// This ensures 100% consistency with the csm.sh detection logic
+// NO FALLBACK - if script fails, returns Unknown for all services
 func (c *Checker) RunAllChecks() *MediaCheckResults {
-	results := &MediaCheckResults{
+	// Default results (all Unknown)
+	defaultResults := &MediaCheckResults{
 		YouTube:     "Unknown",
 		Netflix:     "Unknown",
 		DisneyPlus:  "Unknown",
@@ -114,51 +98,66 @@ func (c *Checker) RunAllChecks() *MediaCheckResults {
 		TikTok:      "Unknown",
 	}
 
-	// Run checks concurrently
-	done := make(chan struct{})
-	go func() {
-		results.YouTube = c.checkYouTubePremium()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.Netflix = c.checkNetflix()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.DisneyPlus = c.checkDisneyPlus()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.HBOMax = c.checkHBOMax()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.AmazonPrime = c.checkAmazonPrime()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.OpenAI = c.checkOpenAI()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.Gemini = c.checkGemini()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.Claude = c.checkClaude()
-		done <- struct{}{}
-	}()
-	go func() {
-		results.TikTok = c.checkTikTok()
-		done <- struct{}{}
-	}()
-
-	// Wait for all checks to complete
-	for i := 0; i < 9; i++ {
-		<-done
+	// Execute embedded csm.sh script (100% accurate detection)
+	scriptResults := c.runCSMScript()
+	if scriptResults != nil {
+		c.logger.Info("[MediaCheck] csm.sh script executed successfully")
+		return scriptResults
 	}
 
-	return results
+	// Script failed - return default Unknown results
+	c.logger.Error("[MediaCheck] csm.sh script failed, returning Unknown for all services")
+	return defaultResults
+}
+
+// runCSMScript executes the embedded csm.sh script locally, returns results or nil if failed
+// This uses the locally embedded script (CSM_SCRIPT) instead of downloading from remote
+func (c *Checker) runCSMScript() *MediaCheckResults {
+	scriptPath := "/tmp/xrayr_csm_check.sh"
+	resultPath := "/tmp/xrayr_media_check_result.json"
+
+	// Write embedded script to temp file
+	c.logger.Info("[MediaCheck] Writing embedded csm.sh script to temp file...")
+	if err := os.WriteFile(scriptPath, []byte(CSM_SCRIPT), 0755); err != nil {
+		c.logger.Warnf("[MediaCheck] Failed to write script file: %v", err)
+		return nil
+	}
+
+	// Execute the script
+	c.logger.Info("[MediaCheck] Executing embedded csm.sh script (100% same logic as csm.sh)...")
+	execCmd := exec.Command("bash", scriptPath)
+	execCmd.Env = append(os.Environ(), "LANG=en_US.UTF-8")
+	output, err := execCmd.CombinedOutput()
+	if err != nil {
+		c.logger.Warnf("[MediaCheck] Failed to execute script: %v, output: %s", err, string(output))
+		// Clean up script file
+		os.Remove(scriptPath)
+		return nil
+	}
+
+	// Read result JSON file
+	resultData, err := os.ReadFile(resultPath)
+	if err != nil {
+		c.logger.Warnf("[MediaCheck] Failed to read result file: %v", err)
+		os.Remove(scriptPath)
+		return nil
+	}
+
+	// Parse JSON results
+	var results MediaCheckResults
+	if err := json.Unmarshal(resultData, &results); err != nil {
+		c.logger.Warnf("[MediaCheck] Failed to parse result JSON: %v", err)
+		os.Remove(scriptPath)
+		os.Remove(resultPath)
+		return nil
+	}
+
+	// Clean up temp files
+	os.Remove(scriptPath)
+	os.Remove(resultPath)
+
+	c.logger.Info("[MediaCheck] Embedded csm.sh script executed successfully")
+	return &results
 }
 
 // ToJSON converts results to JSON string
@@ -168,81 +167,4 @@ func (r *MediaCheckResults) ToJSON() string {
 		return "{}"
 	}
 	return string(data)
-}
-
-// httpGet performs a GET request with custom headers
-func (c *Checker) httpGet(url string, headers map[string]string) ([]byte, int, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Set default User-Agent matching csm.sh
-	req.Header.Set("User-Agent", UA_BROWSER)
-	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-
-	return body, resp.StatusCode, nil
-}
-
-// httpGetWithHeaders performs a GET request with full custom headers (for Netflix, etc.)
-// This follows the exact header pattern from csm.sh
-func (c *Checker) httpGetWithHeaders(url string, headers map[string]string) ([]byte, int, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Set User-Agent first
-	req.Header.Set("User-Agent", UA_BROWSER)
-
-	// Apply all custom headers
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, resp.StatusCode, err
-	}
-
-	return body, resp.StatusCode, nil
-}
-
-// formatResult formats the check result
-func formatResult(status, region string) string {
-	if region != "" {
-		return fmt.Sprintf("%s (%s)", status, region)
-	}
-	return status
-}
-
-// extractRegion extracts region code from response using regex
-func extractRegion(body string, pattern string) string {
-	re := regexp.MustCompile(pattern)
-	matches := re.FindStringSubmatch(body)
-	if len(matches) > 1 {
-		return strings.ToUpper(matches[1])
-	}
-	return ""
 }

@@ -19,7 +19,7 @@ type API interface {
 	ReportIllegal(detectResultList *[]DetectResult) (err error)
 	Debug()
 	// GetMediaCheckConfig returns the streaming media check configuration
-	// from the panel, including the check interval in minutes.
+	// from the panel, including the check interval in hours.
 	GetMediaCheckConfig() (config *MediaCheckConfig, err error)
 	// ReportMediaCheckResult reports the streaming media unlock check results
 	// to the panel for the current node.

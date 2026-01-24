@@ -1169,7 +1169,7 @@ func compareVersion(version1, version2 string) int {
 }
 
 // GetMediaCheckConfig fetches the streaming media check configuration from the panel.
-// This includes whether media check is enabled and the check interval in minutes.
+// This includes whether media check is enabled and the check interval in hours.
 func (c *APIClient) GetMediaCheckConfig() (*api.MediaCheckConfig, error) {
 	path := "/mod_mu/media/config"
 	res, err := c.client.R().

@@ -790,6 +790,8 @@ func (c *Controller) initMediaCheck() error {
 // It fetches the latest configuration from panel before each check (hot reload).
 // Uses global cache to avoid redundant checks across multiple nodes on the same server.
 // Only the first node performs the actual check, other nodes reuse the cached results.
+// Checks are executed at whole hours (00:00, 01:00, etc.) based on the configured interval.
+// Time window is extended to 5 minutes to allow all nodes to complete their checks.
 func (c *Controller) mediaCheckMonitor() error {
 	if c.mediaChecker == nil {
 		return nil
@@ -811,22 +813,40 @@ func (c *Controller) mediaCheckMonitor() error {
 		return nil
 	}
 
-	// Check if interval is valid
+	// Check if interval is valid (interval is now in hours)
 	if config.CheckInterval <= 0 {
 		return nil
 	}
 
 	now := time.Now()
-	intervalDuration := time.Duration(config.CheckInterval) * time.Minute
+	currentHour := now.Hour()
 
-	// Check if this node has reported before
-	isFirstReport := c.lastMediaCheckTime.IsZero()
+	// Check if current time is at a whole hour (within the first 5 minutes)
+	// Extended from 1 minute to 5 minutes to allow all nodes to complete their checks
+	// This ensures checks run at 00:00-00:05, 01:00-01:05, 02:00-02:05, etc.
+	if now.Minute() >= 5 {
+		return nil
+	}
 
-	// For subsequent reports, check if enough time has passed
-	if !isFirstReport {
-		elapsed := now.Sub(c.lastMediaCheckTime)
-		if elapsed < intervalDuration {
-			// Not enough time has passed, skip this report
+	// Check if current hour matches the interval pattern
+	// For interval=1: every hour (0, 1, 2, 3, ...)
+	// For interval=2: every 2 hours (0, 2, 4, 6, ...)
+	// For interval=3: every 3 hours (0, 3, 6, 9, ...)
+	// For interval=6: every 6 hours (0, 6, 12, 18)
+	// For interval=12: every 12 hours (0, 12)
+	// For interval=24: once a day (0)
+	if currentHour%config.CheckInterval != 0 {
+		return nil
+	}
+
+	// Check if this node has already reported in this hour
+	if !c.lastMediaCheckTime.IsZero() {
+		lastHour := c.lastMediaCheckTime.Hour()
+		lastDate := c.lastMediaCheckTime.Format("2006-01-02")
+		currentDate := now.Format("2006-01-02")
+
+		// If we already reported at this hour today, skip
+		if lastDate == currentDate && lastHour == currentHour {
 			return nil
 		}
 	}
@@ -840,10 +860,10 @@ func (c *Controller) mediaCheckMonitor() error {
 		results = cachedResults
 		c.logger.Printf("[MediaCheck] Node %d: Using cached results", c.nodeInfo.NodeID)
 	} else {
-		// No valid cache, this node performs the actual check
-		c.logger.Printf("[MediaCheck] Node %d: Performing actual check (interval: %d min)", c.nodeInfo.NodeID, config.CheckInterval)
+		// No valid cache, this node performs the actual check using csm.sh script
+		c.logger.Printf("[MediaCheck] Node %d: Performing actual check at %02d:%02d (interval: %d hours)", c.nodeInfo.NodeID, currentHour, now.Minute(), config.CheckInterval)
 
-		// Run all checks
+		// Run all checks (will use csm.sh script)
 		results = c.mediaChecker.RunAllChecks()
 
 		// Store results in global cache for other nodes to use
