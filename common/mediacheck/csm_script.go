@@ -276,22 +276,38 @@ MediaUnlockTest_OpenAI() {
     fi
 }
 
-# Google Gemini check
+# Google Gemini check - region-based detection
+# Based on official supported regions: https://ai.google.dev/gemini-api/docs/available-regions
+# If YouTube Premium is not available, Gemini is also not available
 MediaUnlockTest_Gemini() {
-    local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sL "https://gemini.google.com" --user-agent "${UA_BROWSER}")
-    if [[ "$tmpresult" = "curl"* ]] || [ -z "$tmpresult" ]; then
+    # Check if YouTube Premium result exists and is "No"
+    local ytResult=$(cat "$RESULT_DIR/YouTube_Premium" 2>/dev/null)
+    if [[ "$ytResult" == "No"* ]]; then
+        writeResult "Gemini" "No"
+        return
+    fi
+
+    # Gemini supported countries/regions (ISO 3166-1 alpha-2 codes)
+    # Source: https://ai.google.dev/gemini-api/docs/available-regions
+    GEMINI_SUPPORT_COUNTRY=(AL DZ AS AO AI AQ AG AR AM AW AU AT AZ BS BH BD BB BE BZ BJ BM BT BO BA BW BR IO VG BN BG BF CV KH CM CA KY CF TD CL CX CC CO KM CG CK CR CI HR CW CZ CD DK DJ DM DO EC EG SV GQ ER EE SZ ET FK FO FJ FI FR GA GM GE DE GH GI GR GL GD GU GT GG GN GW GY HT HN HU IS IN ID IQ IE IM IL IT JM JP JE JO KZ KE KI XK KW KG LA LV LB LS LR LY LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MS MA MZ MM NA NR NP NL NC NZ NI NE NG NU NF MK MP NO OM PK PW PS PA PG PY PE PH PN PL PT PR QA CY RO RW BL SH KN LC PM VC WS SM ST SA SN RS SC SL SG SK SI SB SO ZA GS KR SS ES LK SR SE CH TW TJ TZ TH TL TG TK TO TT TN TM TC TV TR UG UA AE GB US UM UY VI UZ VU VE VN WF EH YE ZM ZW AX)
+
+    # Get country code from IP using multiple services
+    local iso2_code=$(curl -s --max-time 3 "https://ipinfo.io/country" 2>/dev/null | tr -d '\n')
+    if [ -z "$iso2_code" ]; then
+        iso2_code=$(curl -s --max-time 3 "https://api.country.is" 2>/dev/null | grep -oE '"country":"[A-Z]{2}"' | sed 's/"country":"//;s/"//')
+    fi
+    if [ -z "$iso2_code" ]; then
+        iso2_code=$(curl -s --max-time 3 "http://ip-api.com/line/?fields=countryCode" 2>/dev/null | tr -d '\n')
+    fi
+
+    if [ -z "$iso2_code" ]; then
         writeResult "Gemini" "Unknown"
         return
     fi
 
-    local result=$(echo "$tmpresult" | grep -q '45631641,null,true' && echo "Yes" || echo "")
-    local countrycode=$(echo "$tmpresult" | grep -o ',2,1,200,"[A-Z]\{3\}"' | sed 's/,2,1,200,"//;s/"//' || echo "")
-
-    if [ -n "$result" ] && [ -n "$countrycode" ]; then
-        countrycode=$(echo "$countrycode" | cut -c1-2)
-        writeResult "Gemini" "Yes ($countrycode)"
-    elif [ -n "$result" ]; then
-        writeResult "Gemini" "Yes"
+    # Check if country is in supported list
+    if [[ " ${GEMINI_SUPPORT_COUNTRY[@]} " =~ " ${iso2_code} " ]]; then
+        writeResult "Gemini" "Yes ($iso2_code)"
     else
         writeResult "Gemini" "No"
     fi
@@ -383,16 +399,22 @@ MediaUnlockTest_TikTok() {
 runCheck() {
     initResultDir
 
-    # Run all checks in parallel using background processes
-    MediaUnlockTest_Netflix &
+    # First, run YouTube Premium check (Gemini depends on this result)
     MediaUnlockTest_YouTube_Premium &
+    local yt_pid=$!
+
+    # Run other checks in parallel (except Gemini)
+    MediaUnlockTest_Netflix &
     MediaUnlockTest_DisneyPlus &
     MediaUnlockTest_HBOMax &
     MediaUnlockTest_PrimeVideo &
     MediaUnlockTest_OpenAI &
-    MediaUnlockTest_Gemini &
     MediaUnlockTest_Claude &
     MediaUnlockTest_TikTok &
+
+    # Wait for YouTube Premium to complete before running Gemini
+    wait $yt_pid
+    MediaUnlockTest_Gemini &
 
     # Wait for all background processes to complete
     wait
