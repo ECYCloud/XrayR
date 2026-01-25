@@ -21,6 +21,7 @@ import (
 	"github.com/ECYCloud/XrayR/api/sspanel"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
+	"github.com/ECYCloud/XrayR/common/mediacheck"
 	"github.com/ECYCloud/XrayR/common/mylego"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/anytls"
@@ -283,6 +284,23 @@ func (p *Panel) Start() {
 	// 这里在本地生成一份展开后的节点列表。
 	nodes := expandNodesConfig(rawNodes)
 	log.Printf("Start the panel.. (logical nodes = %d)", len(nodes))
+
+	// 预先注册所有节点 ID 用于媒体检测共享
+	// 这必须在任何节点启动之前完成，确保第一个执行检测的节点能为所有节点上报结果
+	for _, nodeConfig := range nodes {
+		if nodeConfig == nil || nodeConfig.ApiConfig == nil {
+			continue
+		}
+		nodeIDStr := strings.TrimSpace(nodeConfig.ApiConfig.NodeID)
+		if nodeIDStr == "" || nodeIDStr == "0" {
+			continue
+		}
+		if nodeID, err := strconv.Atoi(nodeIDStr); err == nil && nodeID > 0 {
+			mediacheck.RegisterNodeID(nodeID)
+		}
+	}
+	log.Printf("[MediaCheck] Pre-registered all %d node IDs for shared detection", len(mediacheck.GetRegisteredNodeIDs()))
+
 	// Load Core
 	server := p.loadCore(p.panelConfig)
 	if err := server.Start(); err != nil {

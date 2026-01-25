@@ -767,13 +767,11 @@ func (c *Controller) certMonitor() error {
 
 // initMediaCheck initializes the media check periodic task.
 // The actual configuration is fetched dynamically before each check (hot reload).
+// Note: Node IDs are pre-registered in panel.Start() before any controller starts.
 func (c *Controller) initMediaCheck() error {
 	c.mediaChecker = mediacheck.NewChecker(c.logger)
 	// Initialize lastMediaCheckTime to zero so first check runs immediately after startup
 	c.lastMediaCheckTime = time.Time{}
-
-	// Register this node for shared detection results
-	mediacheck.RegisterNodeID(c.nodeInfo.NodeID)
 
 	// Add media check periodic task with a base interval of 1 minute
 	// The actual check execution is controlled by mediaCheckMonitor based on panel config
