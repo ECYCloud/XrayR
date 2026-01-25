@@ -297,49 +297,54 @@ MediaUnlockTest_Gemini() {
     fi
 }
 
-# Claude check - improved accuracy
+# Claude check
 MediaUnlockTest_Claude() {
-    # First get region via IP service (more reliable)
-    local region=$(curl -s --max-time 5 "https://api.country.is" 2>/dev/null | grep -oP '"country":"\K[^"]+')
-    if [ -z "$region" ]; then
-        region=$(curl -s --max-time 3 "http://ip-api.com/json" 2>/dev/null | grep -oP '"countryCode":"\K[^"]+')
-    fi
-
-    # Check Claude availability
-    local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -s 'https://claude.ai/' -H 'authority: claude.ai' -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: ${UA_SEC_CH_UA}" -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-dest: document' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-site: none' -H 'sec-fetch-user: ?1' --user-agent "${UA_BROWSER}")
+    local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -s 'https://claude.ai/' -H 'authority: claude.ai' -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: ${UA_SEC_CH_UA}" -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-dest: document' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-site: none' -H 'sec-fetch-user: ?1' -H 'upgrade-insecure-requests: 1' --user-agent "${UA_BROWSER}")
 
     if [ -z "$tmpresult" ]; then
         writeResult "Claude" "Unknown"
         return
     fi
 
-    # Check for explicit blocking messages
-    local isBlocked=$(echo "$tmpresult" | grep -i 'not available in your country\|region restricted\|access denied')
+    # 检查是否被阻止访问
+    local isBlocked=$(echo "$tmpresult" | grep -i 'not available in your country\|region restricted\|access denied\|blocked\|unavailable')
 
-    # Check if Claude page loaded successfully (contains Claude/Anthropic references)
-    local isAvailable=$(echo "$tmpresult" | grep -i 'claude\|anthropic\|<title>')
+    # 通过多种方式获取地区信息
+    local region=""
 
-    # Check for Cloudflare or other blocking
-    local isCloudflareBlock=$(echo "$tmpresult" | grep -i 'cloudflare\|ray id\|checking your browser')
+    # 方法1: 从页面中提取国家代码
+    region=$(echo "$tmpresult" | grep -oP '"country":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
+
+    # 方法2: 如果方法1失败，尝试其他模式
+    if [ -z "$region" ]; then
+        region=$(echo "$tmpresult" | grep -oP '"countryCode":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
+    fi
+
+    # 方法3: 尝试从location相关字段获取
+    if [ -z "$region" ]; then
+        region=$(echo "$tmpresult" | grep -oP '"location":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
+    fi
+
+    # 方法4: 如果以上都失败，通过IP服务获取地区
+    if [ -z "$region" ]; then
+        region=$(curl -s --max-time 5 "https://api.country.is" | grep -oP '"country":"[A-Z]{2}"' | cut -d'"' -f4)
+    fi
+
+    # 检查Claude是否可用（没有被阻止且页面正常加载）
+    local isAvailable=$(echo "$tmpresult" | grep -i 'claude\|anthropic')
 
     if [ -n "$isBlocked" ]; then
         writeResult "Claude" "No"
         return
     fi
 
-    # If Cloudflare challenge, likely available but need verification
-    if [ -n "$isCloudflareBlock" ] && [ -z "$isBlocked" ]; then
-        if [ -n "$region" ]; then
-            writeResult "Claude" "Yes ($region)"
-        else
-            writeResult "Claude" "Yes"
-        fi
-        return
-    fi
-
-    if [ -n "$isAvailable" ]; then
-        if [ -n "$region" ]; then
-            writeResult "Claude" "Yes ($region)"
+    if [ -n "$isAvailable" ] && [ -n "$region" ]; then
+        writeResult "Claude" "Yes ($region)"
+    elif [ -n "$isAvailable" ]; then
+        # 如果服务可用但无法获取地区，使用备用方法
+        local fallback_region=$(curl -s --max-time 3 "http://ip-api.com/json" | grep -oP '"countryCode":"[A-Z]{2}"' | cut -d'"' -f4)
+        if [ -n "$fallback_region" ]; then
+            writeResult "Claude" "Yes ($fallback_region)"
         else
             writeResult "Claude" "Yes"
         fi
