@@ -84,14 +84,8 @@ MediaUnlockTest_Netflix() {
     fi
     if [ "$result1" == '200' ] || [ "$result2" == '200' ]; then
         local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://www.netflix.com/' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: ${UA_SEC_CH_UA}" -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-site: none' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-user: ?1' -H 'sec-fetch-dest: document' --user-agent "${UA_BROWSER}")
-        # Try multiple methods to get region
-        local region=$(echo "$tmpresult" | grep -oP '"id":"\K[^"]+' | grep -E '^[A-Z]{2}$' | head -n 1)
-        if [ -z "$region" ]; then
-            region=$(echo "$tmpresult" | grep -oP '"country":"\K[^"]+' | head -n 1)
-        fi
-        if [ -z "$region" ]; then
-            region=$(echo "$tmpresult" | grep -oP 'netflix\.com/[a-z]{2}/' | head -n 1 | cut -d'/' -f2 | tr 'a-z' 'A-Z')
-        fi
+        # Extract region from Netflix response
+        local region=$(echo "$tmpresult" | grep -oP '"country":"\K[A-Z]{2}' | head -n 1)
         # Fallback to IP-based region detection
         if [ -z "$region" ]; then
             region=$(curl -s --max-time 3 "https://api.country.is" 2>/dev/null | grep -oP '"country":"\K[^"]+')
