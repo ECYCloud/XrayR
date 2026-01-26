@@ -40,11 +40,11 @@ writeResult() {
 
 # Merge all results into final JSON
 mergeResults() {
-    local youtube=$(cat "$RESULT_DIR/YouTube_Premium" 2>/dev/null || echo "Unknown")
+    local youtube_premium=$(cat "$RESULT_DIR/YouTube_Premium" 2>/dev/null || echo "Unknown")
     local netflix=$(cat "$RESULT_DIR/Netflix" 2>/dev/null || echo "Unknown")
-    local disney=$(cat "$RESULT_DIR/DisneyPlus" 2>/dev/null || echo "Unknown")
-    local hbo=$(cat "$RESULT_DIR/HBOMax" 2>/dev/null || echo "Unknown")
-    local amazon=$(cat "$RESULT_DIR/AmazonPrime" 2>/dev/null || echo "Unknown")
+    local disney_plus=$(cat "$RESULT_DIR/DisneyPlus" 2>/dev/null || echo "Unknown")
+    local hbo_max=$(cat "$RESULT_DIR/HBOMax" 2>/dev/null || echo "Unknown")
+    local amazon_prime=$(cat "$RESULT_DIR/AmazonPrime" 2>/dev/null || echo "Unknown")
     local openai=$(cat "$RESULT_DIR/OpenAI" 2>/dev/null || echo "Unknown")
     local gemini=$(cat "$RESULT_DIR/Gemini" 2>/dev/null || echo "Unknown")
     local claude=$(cat "$RESULT_DIR/Claude" 2>/dev/null || echo "Unknown")
@@ -52,11 +52,11 @@ mergeResults() {
 
     cat > "$RESULT_FILE" << EOF
 {
-    "YouTube_Premium": "$youtube",
+    "YouTube_Premium": "$youtube_premium",
     "Netflix": "$netflix",
-    "DisneyPlus": "$disney",
-    "HBOMax": "$hbo",
-    "AmazonPrime": "$amazon",
+    "DisneyPlus": "$disney_plus",
+    "HBOMax": "$hbo_max",
+    "AmazonPrime": "$amazon_prime",
     "OpenAI": "$openai",
     "Gemini": "$gemini",
     "Claude": "$claude",
@@ -216,7 +216,7 @@ MediaUnlockTest_HBOMax() {
     writeResult "HBOMax" "No"
 }
 
-# Amazon Prime Video check
+# Prime Video check
 MediaUnlockTest_PrimeVideo() {
     local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://www.primevideo.com' --user-agent "${UA_BROWSER}")
     if [ -z "$tmpresult" ]; then

@@ -94,7 +94,7 @@ func runManualMediaCheck() {
 	printResult("YouTube Premium", results.YouTubePremium)
 	printResult("Disney+", results.DisneyPlus)
 	printResult("HBO Max", results.HBOMax)
-	printResult("Amazon Prime", results.AmazonPrime)
+	printResult("Prime Video", results.AmazonPrime)
 	printResult("OpenAI", results.OpenAI)
 	printResult("Google Gemini", results.Gemini)
 	printResult("Claude", results.Claude)
