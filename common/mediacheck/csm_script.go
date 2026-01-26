@@ -369,30 +369,53 @@ MediaUnlockTest_Claude() {
     fi
 }
 
-# TikTok check
+# TikTok check - region-based detection
+# TikTok is banned or unavailable in certain countries/regions
+# Uses blacklist approach similar to OpenAI/Gemini detection
 MediaUnlockTest_TikTok() {
-    local Ftmpresult=$(curl --user-agent "${UA_Browser}" -s --max-time 8 "https://www.TikTok.com/")
+    # TikTok banned/unavailable countries (ISO 3166-1 alpha-2 codes)
+    # Official government bans:
+    #   IN: India (government ban since 2020)
+    #   AF: Afghanistan (Taliban ban since 2022)
+    #   IR: Iran (long-term ban)
+    #   SO: Somalia (government ban since 2023)
+    #   SN: Senegal (government ban since 2023)
+    #   JO: Jordan (ban since 2022)
+    #   UZ: Uzbekistan (ban since 2021)
+    #   AL: Albania (ban since 2025, first in Europe)
+    #   KG: Kyrgyzstan (ban since 2024)
+    # Effectively unavailable:
+    #   CN: China mainland (TikTok not available, only Douyin)
+    #   HK: Hong Kong (TikTok withdrew from HK in 2020)
+    #   KP: North Korea (no internet access)
+    TIKTOK_BANNED_COUNTRY=(CN HK IN AF IR SO SN JO UZ AL KG KP)
 
-    if [[ "$Ftmpresult" = "curl"* ]] || [ -z "$Ftmpresult" ]; then
+    # Get country code from IP using multiple services
+    local region=$(curl -s --max-time 3 "https://ipinfo.io/country" 2>/dev/null | tr -d '\n')
+    if [ -z "$region" ]; then
+        region=$(curl -s --max-time 3 "https://api.country.is" 2>/dev/null | grep -oE '"country":"[A-Z]{2}"' | sed 's/"country":"//;s/"//')
+    fi
+    if [ -z "$region" ]; then
+        region=$(curl -s --max-time 3 "http://ip-api.com/line/?fields=countryCode" 2>/dev/null | tr -d '\n')
+    fi
+
+    # If we can't determine the region, return Unknown
+    if [ -z "$region" ]; then
         writeResult "TikTok" "Unknown"
         return
     fi
 
-    local FRegion=$(echo $Ftmpresult | grep '"region":' | sed 's/.*"region"//' | cut -f2 -d'"')
-    if [ -n "$FRegion" ]; then
-        writeResult "TikTok" "Yes ($FRegion)"
-        return
-    fi
+    # Convert region to uppercase for comparison
+    region=$(echo "$region" | tr 'a-z' 'A-Z')
 
-    local STmpresult=$(curl --user-agent "${UA_Browser}" -sL --max-time 8 -H "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8" -H "Accept-Encoding: gzip" -H "Accept-Language: en" "https://www.TikTok.com" | gunzip 2>/dev/null)
-    local SRegion=$(echo $STmpresult | grep '"region":' | sed 's/.*"region"//' | cut -f2 -d'"')
-    if [ -n "$SRegion" ]; then
-        writeResult "TikTok" "Yes ($SRegion)"
-        return
-    else
+    # Check if country is in banned list
+    if [[ " ${TIKTOK_BANNED_COUNTRY[@]} " =~ " ${region} " ]]; then
         writeResult "TikTok" "No"
         return
     fi
+
+    # TikTok is available in this region
+    writeResult "TikTok" "Yes ($region)"
 }
 
 # Run all checks in parallel
