@@ -7,7 +7,8 @@ import (
 )
 
 var (
-	version  = "1.1.1"
+	// version will be overridden by -ldflags "-X" during CI build
+	version  = "dev"
 	codename = "XrayR"
 	intro    = "A Xray backend that supports many panels"
 )
