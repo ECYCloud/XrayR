@@ -115,9 +115,12 @@ type RuleItem struct {
 
 // RuleListResponse is the response of detect_rules API, including exempt_users
 type RuleListResponse struct {
-	Ret         uint              `json:"ret"`
-	Data        json.RawMessage   `json:"data"`
-	ExemptUsers map[string]string `json:"exempt_users"`
+	Ret  uint            `json:"ret"`
+	Data json.RawMessage `json:"data"`
+	// ExemptUsers may be a JSON object (map) or an empty JSON array [] when no
+	// exempt users are configured (PHP encodes empty associative arrays as []).
+	// Use json.RawMessage and parse manually to handle both cases.
+	ExemptUsers json.RawMessage `json:"exempt_users"`
 }
 
 type IllegalItem struct {

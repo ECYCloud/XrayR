@@ -481,13 +481,23 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	return &ruleList, nil
 }
 
-// parseExemptUsers converts the panel's exempt_users map to ExemptUser slice
-func parseExemptUsers(raw map[string]string) []api.ExemptUser {
+// parseExemptUsers converts the panel's exempt_users JSON to ExemptUser slice.
+// Handles both JSON object {"1":"*","2":"1,3"} and empty JSON array [] (PHP quirk).
+func parseExemptUsers(raw json.RawMessage) []api.ExemptUser {
 	if len(raw) == 0 {
 		return nil
 	}
+	// Try to unmarshal as map[string]string (normal case: JSON object)
+	var m map[string]string
+	if err := json.Unmarshal(raw, &m); err != nil {
+		// Likely an empty JSON array [] — not an error, just no exempt users
+		return nil
+	}
+	if len(m) == 0 {
+		return nil
+	}
 	var result []api.ExemptUser
-	for uidStr, val := range raw {
+	for uidStr, val := range m {
 		uid, err := strconv.Atoi(uidStr)
 		if err != nil {
 			continue
