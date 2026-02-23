@@ -40,6 +40,8 @@ type APIClient struct {
 	access              sync.Mutex
 	version             string
 	eTags               map[string]string
+	// exemptUsers caches the latest exempt user list from the panel
+	exemptUsers []api.ExemptUser
 }
 
 // mapSortToNodeType
@@ -430,28 +432,39 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 	ruleList := c.LocalRuleList
 	path := "/mod_mu/func/detect_rules"
 	res, err := c.client.R().
-		SetResult(&Response{}).
 		SetHeader("If-None-Match", c.eTags["rules"]).
 		ForceContentType("application/json").
 		Get(path)
+
+	if err != nil {
+		return nil, fmt.Errorf("request %s failed: %s", c.assembleURL(path), err)
+	}
 
 	// Etag identifier for a specific version of a resource. StatusCode = 304 means no changed
 	if res.StatusCode() == 304 {
 		return nil, errors.New(api.RuleNotModified)
 	}
 
+	if res.StatusCode() > 400 {
+		return nil, fmt.Errorf("request %s failed with status: %d", c.assembleURL(path), res.StatusCode())
+	}
+
 	if res.Header().Get("ETag") != "" && res.Header().Get("ETag") != c.eTags["rules"] {
 		c.eTags["rules"] = res.Header().Get("ETag")
 	}
 
-	response, err := c.parseResponse(res, path, err)
-	if err != nil {
-		return nil, err
+	// Parse the full response including exempt_users
+	var ruleResp RuleListResponse
+	if err := json.Unmarshal(res.Body(), &ruleResp); err != nil {
+		return nil, fmt.Errorf("unmarshal rule response failed: %s", err)
+	}
+
+	if ruleResp.Ret != 1 {
+		return nil, fmt.Errorf("GetNodeRule: ret=%d", ruleResp.Ret)
 	}
 
 	ruleListResponse := new([]RuleItem)
-
-	if err := json.Unmarshal(response.Data, ruleListResponse); err != nil {
+	if err := json.Unmarshal(ruleResp.Data, ruleListResponse); err != nil {
 		return nil, fmt.Errorf("unmarshal %s failed: %s", reflect.TypeOf(ruleListResponse), err)
 	}
 
@@ -461,7 +474,44 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 			Pattern: regexp.MustCompile(r.Content),
 		})
 	}
+
+	// Parse exempt users and cache them
+	c.exemptUsers = parseExemptUsers(ruleResp.ExemptUsers)
+
 	return &ruleList, nil
+}
+
+// parseExemptUsers converts the panel's exempt_users map to ExemptUser slice
+func parseExemptUsers(raw map[string]string) []api.ExemptUser {
+	if len(raw) == 0 {
+		return nil
+	}
+	var result []api.ExemptUser
+	for uidStr, val := range raw {
+		uid, err := strconv.Atoi(uidStr)
+		if err != nil {
+			continue
+		}
+		eu := api.ExemptUser{UID: uid}
+		if val == "*" {
+			eu.GlobalExempt = true
+		} else {
+			parts := strings.Split(val, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if rid, err := strconv.Atoi(p); err == nil {
+					eu.ExemptRuleIDs = append(eu.ExemptRuleIDs, rid)
+				}
+			}
+		}
+		result = append(result, eu)
+	}
+	return result
+}
+
+// GetExemptUsers returns the cached exempt user list from the last GetNodeRule call
+func (c *APIClient) GetExemptUsers() ([]api.ExemptUser, error) {
+	return c.exemptUsers, nil
 }
 
 // ReportIllegal reports the user illegal behaviors

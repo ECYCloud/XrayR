@@ -16,6 +16,7 @@ type API interface {
 	ReportUserTraffic(userTraffic *[]UserTraffic) (err error)
 	Describe() ClientInfo
 	GetNodeRule() (ruleList *[]DetectRule, err error)
+	GetExemptUsers() (exemptUsers []ExemptUser, err error)
 	ReportIllegal(detectResultList *[]DetectResult) (err error)
 	Debug()
 	// GetMediaCheckConfig returns the streaming media check configuration

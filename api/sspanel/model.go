@@ -113,6 +113,13 @@ type RuleItem struct {
 	Content string `json:"regex"`
 }
 
+// RuleListResponse is the response of detect_rules API, including exempt_users
+type RuleListResponse struct {
+	Ret         uint              `json:"ret"`
+	Data        json.RawMessage   `json:"data"`
+	ExemptUsers map[string]string `json:"exempt_users"`
+}
+
 type IllegalItem struct {
 	ID  int    `json:"list_id"`
 	UID int    `json:"user_id"`

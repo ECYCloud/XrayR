@@ -173,6 +173,14 @@ type DetectResult struct {
 	IP     string
 }
 
+// ExemptUser represents a user's audit exemption configuration.
+// ExemptRuleIDs is nil for global exemption ("*"), or a list of rule IDs for partial exemption.
+type ExemptUser struct {
+	UID           int
+	GlobalExempt  bool  // true = exempt from all rules
+	ExemptRuleIDs []int // non-nil only when GlobalExempt is false
+}
+
 type REALITYConfig struct {
 	Dest             string
 	ProxyProtocolVer uint64

@@ -18,13 +18,47 @@ import (
 type Manager struct {
 	InboundRule         *sync.Map // Key: Tag, Value: []api.DetectRule
 	InboundDetectResult *sync.Map // key: Tag, Value: mapset.NewSet []api.DetectResult
+	// exemptUsers stores the audit exemption list. Key: UID, Value: *api.ExemptUser
+	exemptUsers *sync.Map
 }
 
 func New() *Manager {
 	return &Manager{
 		InboundRule:         new(sync.Map),
 		InboundDetectResult: new(sync.Map),
+		exemptUsers:         new(sync.Map),
 	}
+}
+
+// UpdateExemptUsers replaces the exempt user list
+func (r *Manager) UpdateExemptUsers(users []api.ExemptUser) {
+	// Clear old entries
+	r.exemptUsers.Range(func(key, value interface{}) bool {
+		r.exemptUsers.Delete(key)
+		return true
+	})
+	// Store new entries
+	for i := range users {
+		r.exemptUsers.Store(users[i].UID, &users[i])
+	}
+}
+
+// isExempt checks if a user (by UID) is exempt from a specific rule
+func (r *Manager) isExempt(uid int, ruleID int) bool {
+	val, ok := r.exemptUsers.Load(uid)
+	if !ok {
+		return false
+	}
+	eu := val.(*api.ExemptUser)
+	if eu.GlobalExempt {
+		return true
+	}
+	for _, rid := range eu.ExemptRuleIDs {
+		if rid == ruleID {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Manager) UpdateRule(tag string, newRuleList []api.DetectRule) error {
@@ -52,26 +86,33 @@ func (r *Manager) GetDetectResult(tag string) (*[]api.DetectResult, error) {
 func (r *Manager) Detect(tag string, destination string, userKey string, srcIP string) (reject bool) {
 	reject = false
 	var hitRuleID = -1
+	// Parse UID early so we can check exemptions before rejecting
+	uid := -1
+	if n, err := strconv.Atoi(userKey); err == nil {
+		uid = n
+	} else {
+		parts := strings.Split(userKey, "|")
+		if n, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			uid = n
+		}
+	}
 	// If we have some rule for this inbound
 	if value, ok := r.InboundRule.Load(tag); ok {
 		ruleList := value.([]api.DetectRule)
-		for _, r := range ruleList {
-			if r.Pattern.Match([]byte(destination)) {
-				hitRuleID = r.ID
+		for _, rule := range ruleList {
+			if rule.Pattern.Match([]byte(destination)) {
+				// Check if user is exempt from this rule
+				if uid >= 0 && r.isExempt(uid, rule.ID) {
+					continue
+				}
+				hitRuleID = rule.ID
 				reject = true
 				break
 			}
 		}
 		// If we hit some rule
 		if reject && hitRuleID != -1 {
-			// Prefer interpreting userKey directly as UID. For backward
-			// compatibility, fall back to parsing the last segment after '|'.
-			uid, err := strconv.Atoi(userKey)
-			if err != nil {
-				parts := strings.Split(userKey, "|")
-				uid, err = strconv.Atoi(parts[len(parts)-1])
-			}
-			if err != nil {
+			if uid < 0 {
 				errors.LogDebug(context.Background(), fmt.Sprintf("Record illegal behavior failed! Cannot find user's uid: %s", userKey))
 				return reject
 			}

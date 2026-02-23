@@ -173,6 +173,12 @@ func (c *Controller) Start() error {
 				c.logger.Print(err)
 			}
 		}
+		// Update exempt users
+		if exemptUsers, err := c.apiClient.GetExemptUsers(); err != nil {
+			c.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			c.dispatcher.RuleManager.UpdateExemptUsers(exemptUsers)
+		}
 	}
 
 	// Init AutoSpeedLimitConfig
@@ -337,6 +343,12 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 			if err := c.UpdateRule(c.Tag, *ruleList); err != nil {
 				c.logger.Print(err)
 			}
+		}
+		// Update exempt users
+		if exemptUsers, err := c.apiClient.GetExemptUsers(); err != nil {
+			c.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			c.dispatcher.RuleManager.UpdateExemptUsers(exemptUsers)
 		}
 	}
 
