@@ -142,7 +142,7 @@ func (c *Controller) Start() error {
 	// Add new tag
 	err = c.addNewTag(newNodeInfo)
 	if err != nil {
-		c.logger.Panic(err)
+		c.logger.Error(err)
 		return err
 	}
 	// Update user
