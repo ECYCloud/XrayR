@@ -89,7 +89,12 @@ func setupDNS(p string, client *lego.Client) {
 	err = client.Challenge.SetDNS01Provider(
 		provider,
 		dns01.AddDNSTimeout(60*time.Second),
-		dns01.AddRecursiveNameservers([]string{"1.1.1.1:53", "8.8.8.8:53"}),
+		dns01.DisableCompletePropagationRequirement(),
+		dns01.WrapPreCheck(func(domain, fqdn, value string, check dns01.PreCheckFunc) (bool, error) {
+			log.Infof("DNS record created, waiting 60s for propagation before verification...")
+			time.Sleep(60 * time.Second)
+			return true, nil
+		}),
 	)
 	if err != nil {
 		log.Panic(err)
