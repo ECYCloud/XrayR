@@ -88,7 +88,8 @@ func setupDNS(p string, client *lego.Client) {
 
 	err = client.Challenge.SetDNS01Provider(
 		provider,
-		dns01.CondOption(true, dns01.AddDNSTimeout(10*time.Second)),
+		dns01.AddDNSTimeout(10*time.Second),
+		dns01.DisableCompletePropagationRequirement(),
 	)
 	if err != nil {
 		log.Panic(err)
