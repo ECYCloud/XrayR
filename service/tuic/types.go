@@ -43,6 +43,12 @@ type TuicService struct {
 	// reloadMu prevents concurrent rebuilds of the underlying sing-box
 	// instance when node configuration or certificates change.
 	reloadMu sync.Mutex
+
+	// Recovery tracking for IP whitelist / connectivity issues
+	consecutiveFailures int
+	lastFailureTime     time.Time
+	recoveryMutex       sync.Mutex
+	recoveryInProgress  bool
 }
 
 type userRecord struct {

@@ -259,6 +259,46 @@ func (h *Hysteria2Service) reloadNode(nodeInfo *api.NodeInfo) error {
 	return nil
 }
 
+// triggerRecovery attempts to recover from consecutive API communication failures
+// (e.g., IP whitelist issues) by stopping and restarting all periodic tasks.
+func (h *Hysteria2Service) triggerRecovery() {
+	h.recoveryMutex.Lock()
+	if h.recoveryInProgress {
+		h.recoveryMutex.Unlock()
+		h.logger.Warn("Recovery already in progress, skip duplicate trigger")
+		return
+	}
+	h.recoveryInProgress = true
+	h.recoveryMutex.Unlock()
+
+	h.logger.Warn("Starting recovery procedure...")
+
+	// Stop all periodic tasks
+	for i := range h.tasks {
+		if h.tasks[i].Periodic != nil {
+			if err := h.tasks[i].Periodic.Close(); err != nil {
+				h.logger.Errorf("Failed to stop %s task: %v", h.tasks[i].tag, err)
+			}
+		}
+	}
+
+	// Reset failure counter
+	h.consecutiveFailures = 0
+
+	// Restart periodic tasks after a short delay
+	go func() {
+		time.Sleep(5 * time.Second)
+		h.logger.Info("Restarting periodic tasks...")
+		for i := range h.tasks {
+			h.logger.Printf("Restarting %s task", h.tasks[i].tag)
+			go h.tasks[i].Start()
+		}
+		h.recoveryMutex.Lock()
+		h.recoveryInProgress = false
+		h.recoveryMutex.Unlock()
+	}()
+}
+
 func getHysteriaCoreVersion() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

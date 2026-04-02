@@ -283,10 +283,25 @@ func (h *Hysteria2Service) userMonitor() error {
 	if err != nil {
 		if err.Error() == api.UserNotModified {
 			usersChanged = false
+			// Reset failure counter on successful "not modified" response
+			h.consecutiveFailures = 0
 		} else {
 			h.logger.Print(err)
+			// Track consecutive API failures for recovery
+			if api.IsAPIFailure(err) {
+				h.consecutiveFailures++
+				h.lastFailureTime = time.Now()
+				h.logger.Warnf("API communication failure detected (%d/%d)", h.consecutiveFailures, api.MaxConsecutiveFailures)
+				if h.consecutiveFailures >= api.MaxConsecutiveFailures {
+					h.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", h.consecutiveFailures)
+					h.triggerRecovery()
+				}
+			}
 			return nil
 		}
+	}
+	if h.consecutiveFailures != 0 {
+		h.consecutiveFailures = 0
 	}
 	if usersChanged {
 		h.syncUsers(newUserInfo)
@@ -353,10 +368,28 @@ func (h *Hysteria2Service) nodeMonitor() error {
 	nodeInfo, err := h.apiClient.GetNodeInfo()
 	if err != nil {
 		if err.Error() == api.NodeNotModified {
+			// Reset failure counter on successful "not modified" response
+			h.consecutiveFailures = 0
 			return nil
 		}
 		h.logger.Print(err)
+		// Track consecutive API failures for recovery
+		if api.IsAPIFailure(err) {
+			h.consecutiveFailures++
+			h.lastFailureTime = time.Now()
+			h.logger.Warnf("API communication failure detected (%d/%d)", h.consecutiveFailures, api.MaxConsecutiveFailures)
+
+			// Check if we should trigger auto-recovery
+			if h.consecutiveFailures >= api.MaxConsecutiveFailures {
+				h.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", h.consecutiveFailures)
+				h.triggerRecovery()
+			}
+		}
 		return nil
+	}
+
+	if h.consecutiveFailures != 0 {
+		h.consecutiveFailures = 0
 	}
 
 	if nodeInfo == nil || nodeInfo.NodeType != "Hysteria2" {

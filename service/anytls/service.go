@@ -223,6 +223,46 @@ func (s *AnyTLSService) reloadNode(nodeInfo *api.NodeInfo) error {
 	return nil
 }
 
+// triggerRecovery attempts to recover from consecutive API communication failures
+// (e.g., IP whitelist issues) by stopping and restarting all periodic tasks.
+func (s *AnyTLSService) triggerRecovery() {
+	s.recoveryMutex.Lock()
+	if s.recoveryInProgress {
+		s.recoveryMutex.Unlock()
+		s.logger.Warn("Recovery already in progress, skip duplicate trigger")
+		return
+	}
+	s.recoveryInProgress = true
+	s.recoveryMutex.Unlock()
+
+	s.logger.Warn("Starting recovery procedure...")
+
+	// Stop all periodic tasks
+	for i := range s.tasks {
+		if s.tasks[i].Periodic != nil {
+			if err := s.tasks[i].Periodic.Close(); err != nil {
+				s.logger.Errorf("Failed to stop %s task: %v", s.tasks[i].tag, err)
+			}
+		}
+	}
+
+	// Reset failure counter
+	s.consecutiveFailures = 0
+
+	// Restart periodic tasks after a short delay
+	go func() {
+		time.Sleep(5 * time.Second)
+		s.logger.Info("Restarting periodic tasks...")
+		for i := range s.tasks {
+			s.logger.Printf("Restarting %s task", s.tasks[i].tag)
+			go s.tasks[i].Start()
+		}
+		s.recoveryMutex.Lock()
+		s.recoveryInProgress = false
+		s.recoveryMutex.Unlock()
+	}()
+}
+
 func getSingBoxVersion() string {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {

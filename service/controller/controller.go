@@ -59,6 +59,11 @@ type Controller struct {
 	mediaChecker       *mediacheck.Checker
 	lastMediaCheckTime time.Time
 	mediaCheckMutex    sync.Mutex
+	// Recovery tracking for IP whitelist / connectivity issues
+	consecutiveFailures int
+	lastFailureTime     time.Time
+	recoveryMutex       sync.Mutex
+	recoveryInProgress  bool
 }
 
 type periodicTask struct {
@@ -267,10 +272,27 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 		if err.Error() == api.NodeNotModified {
 			nodeInfoChanged = false
 			newNodeInfo = c.nodeInfo
+			// Reset failure counter on successful "not modified" response
+			c.consecutiveFailures = 0
 		} else {
 			c.logger.Print(err)
+			// Track consecutive API failures for recovery
+			if api.IsAPIFailure(err) {
+				c.consecutiveFailures++
+				c.lastFailureTime = time.Now()
+				c.logger.Warnf("API communication failure detected (%d/%d)", c.consecutiveFailures, api.MaxConsecutiveFailures)
+
+				// Check if we should trigger auto-recovery
+				if c.consecutiveFailures >= api.MaxConsecutiveFailures {
+					c.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", c.consecutiveFailures)
+					c.triggerRecovery()
+				}
+			}
 			return nil
 		}
+	}
+	if c.consecutiveFailures != 0 {
+		c.consecutiveFailures = 0
 	}
 	if newNodeInfo.Port == 0 {
 		return errors.New("server port must > 0")
@@ -283,10 +305,24 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 		if err.Error() == api.UserNotModified {
 			usersChanged = false
 			newUserInfo = c.userList
+			// Reset failure counter on successful "not modified" response
+			c.consecutiveFailures = 0
 		} else {
 			c.logger.Print(err)
+			if api.IsAPIFailure(err) {
+				c.consecutiveFailures++
+				c.lastFailureTime = time.Now()
+				c.logger.Warnf("API communication failure detected (%d/%d)", c.consecutiveFailures, api.MaxConsecutiveFailures)
+				if c.consecutiveFailures >= api.MaxConsecutiveFailures {
+					c.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", c.consecutiveFailures)
+					c.triggerRecovery()
+				}
+			}
 			return nil
 		}
+	}
+	if c.consecutiveFailures != 0 {
+		c.consecutiveFailures = 0
 	}
 
 	// If nodeInfo changed
@@ -394,6 +430,48 @@ func (c *Controller) nodeInfoMonitor() (err error) {
 	}
 	c.userList = newUserInfo
 	return nil
+}
+
+// triggerRecovery attempts to recover from consecutive API communication failures
+// (e.g., IP whitelist issues) by stopping and restarting all periodic tasks.
+// This allows the service to re-establish fresh connections when the panel
+// eventually updates the whitelist.
+func (c *Controller) triggerRecovery() {
+	c.recoveryMutex.Lock()
+	if c.recoveryInProgress {
+		c.recoveryMutex.Unlock()
+		c.logger.Warn("Recovery already in progress, skip duplicate trigger")
+		return
+	}
+	c.recoveryInProgress = true
+	c.recoveryMutex.Unlock()
+
+	c.logger.Warn("Starting recovery procedure...")
+
+	// Stop all periodic tasks
+	for i := range c.tasks {
+		if c.tasks[i].Periodic != nil {
+			if err := c.tasks[i].Periodic.Close(); err != nil {
+				c.logger.Errorf("Failed to stop %s task: %v", c.tasks[i].tag, err)
+			}
+		}
+	}
+
+	// Reset failure counter
+	c.consecutiveFailures = 0
+
+	// Restart periodic tasks after a short delay
+	go func() {
+		time.Sleep(5 * time.Second)
+		c.logger.Info("Restarting periodic tasks...")
+		for i := range c.tasks {
+			c.logger.Printf("Restarting %s task", c.tasks[i].tag)
+			go c.tasks[i].Start()
+		}
+		c.recoveryMutex.Lock()
+		c.recoveryInProgress = false
+		c.recoveryMutex.Unlock()
+	}()
 }
 
 func (c *Controller) removeOldTag(oldTag string) (err error) {

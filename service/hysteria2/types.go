@@ -48,6 +48,12 @@ type Hysteria2Service struct {
 	// port hopping so that we can reliably remove or update them when the
 	// panel configuration changes or the service stops.
 	portHopRules []portHopRule
+
+	// Recovery tracking for IP whitelist / connectivity issues
+	consecutiveFailures int
+	lastFailureTime     time.Time
+	recoveryMutex       sync.Mutex
+	recoveryInProgress  bool
 }
 
 type userRecord struct {

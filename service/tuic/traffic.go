@@ -316,10 +316,25 @@ func (s *TuicService) userMonitor() error {
 	if err != nil {
 		if err.Error() == api.UserNotModified {
 			usersChanged = false
+			// Reset failure counter on successful "not modified" response
+			s.consecutiveFailures = 0
 		} else {
 			s.logger.Print(err)
+			// Track consecutive API failures for recovery
+			if api.IsAPIFailure(err) {
+				s.consecutiveFailures++
+				s.lastFailureTime = time.Now()
+				s.logger.Warnf("API communication failure detected (%d/%d)", s.consecutiveFailures, api.MaxConsecutiveFailures)
+				if s.consecutiveFailures >= api.MaxConsecutiveFailures {
+					s.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", s.consecutiveFailures)
+					s.triggerRecovery()
+				}
+			}
 			return nil
 		}
+	}
+	if s.consecutiveFailures != 0 {
+		s.consecutiveFailures = 0
 	}
 	if usersChanged {
 		s.syncUsers(newUserInfo)
@@ -379,10 +394,28 @@ func (s *TuicService) nodeMonitor() error {
 	nodeInfo, err := s.apiClient.GetNodeInfo()
 	if err != nil {
 		if err.Error() == api.NodeNotModified {
+			// Reset failure counter on successful "not modified" response
+			s.consecutiveFailures = 0
 			return nil
 		}
 		s.logger.Print(err)
+		// Track consecutive API failures for recovery
+		if api.IsAPIFailure(err) {
+			s.consecutiveFailures++
+			s.lastFailureTime = time.Now()
+			s.logger.Warnf("API communication failure detected (%d/%d)", s.consecutiveFailures, api.MaxConsecutiveFailures)
+
+			// Check if we should trigger auto-recovery
+			if s.consecutiveFailures >= api.MaxConsecutiveFailures {
+				s.logger.Errorf("Consecutive API failures reached threshold (%d), triggering service recovery...", s.consecutiveFailures)
+				s.triggerRecovery()
+			}
+		}
 		return nil
+	}
+
+	if s.consecutiveFailures != 0 {
+		s.consecutiveFailures = 0
 	}
 
 	if nodeInfo == nil || nodeInfo.NodeType != "Tuic" {

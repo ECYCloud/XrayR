@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 
 	"github.com/xtls/xray-core/infra/conf"
 )
@@ -11,7 +12,33 @@ const (
 	UserNotModified = "users not modified"
 	NodeNotModified = "node not modified"
 	RuleNotModified = "rules not modified"
+
+	// MaxConsecutiveFailures 是触发服务自动重启的连续 API 失败阈值。
+	// 当 monitor 连续检测到 API 通讯失败达到此次数后，服务会自动执行
+	// Close + Start 重启循环，以便在面板更新白名单后自动恢复通讯。
+	MaxConsecutiveFailures = 3
 )
+
+// IsAPIFailure 判断 API 调用返回的错误是否代表与面板的通讯失败
+// （区别于 "数据未变更" 等正常逻辑错误）。
+func IsAPIFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	switch msg {
+	case UserNotModified, NodeNotModified, RuleNotModified:
+		return false
+	}
+	lower := strings.ToLower(msg)
+	if strings.Contains(lower, "ret") && strings.Contains(lower, "invalid") {
+		return true
+	}
+	if strings.Contains(lower, "failed") {
+		return true
+	}
+	return false
+}
 
 // Config API config
 //
