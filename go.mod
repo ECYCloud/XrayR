@@ -4,8 +4,8 @@ go 1.26
 
 require (
 	dario.cat/mergo v1.0.0
-	github.com/apernet/hysteria/core/v2 v2.7.1
-	github.com/apernet/hysteria/extras/v2 v2.7.1
+	github.com/apernet/hysteria/core/v2 v2.8.1
+	github.com/apernet/hysteria/extras/v2 v2.8.1
 	github.com/deckarep/golang-set v1.8.0
 	github.com/eko/gocache/lib/v4 v4.1.6
 	github.com/eko/gocache/store/go_cache/v4 v4.2.2
@@ -23,7 +23,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.18.2
-	github.com/xtls/xray-core v1.260206.1-0.20260323102121-cb7bfeb54c79
+	github.com/xtls/xray-core v1.260327.0
 	golang.org/x/crypto v0.49.0
 	golang.org/x/net v0.52.0
 	golang.org/x/time v0.15.0
@@ -68,7 +68,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.26.0 // indirect
 	github.com/anytls/sing-anytls v0.0.11 // indirect
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
-	github.com/apernet/quic-go v0.59.1-0.20260217092621-db4786c77a22 // indirect
+	github.com/apernet/quic-go v0.59.1-0.20260330051153-c402ee641eb6 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.27.27 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.27 // indirect
