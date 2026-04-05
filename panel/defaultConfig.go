@@ -7,10 +7,6 @@ func getDefaultLogConfig() *LogConfig {
 		Level:      "none",
 		AccessPath: "",
 		ErrorPath:  "",
-		LogPath:    "",
-		MaxDays:    3,
-		MaxSize:    100,
-		MaxBackups: 3,
 	}
 }
 

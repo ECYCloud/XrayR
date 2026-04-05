@@ -25,10 +25,6 @@ type LogConfig struct {
 	Level      string `mapstructure:"Level"`
 	AccessPath string `mapstructure:"AccessPath"`
 	ErrorPath  string `mapstructure:"ErrorPath"`
-	LogPath    string `mapstructure:"LogPath"`
-	MaxDays    int    `mapstructure:"MaxDays"`
-	MaxSize    int    `mapstructure:"MaxSize"`
-	MaxBackups int    `mapstructure:"MaxBackups"`
 }
 
 type ConnectionConfig struct {
