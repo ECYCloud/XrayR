@@ -4,7 +4,7 @@ import "github.com/ECYCloud/XrayR/service/controller"
 
 func getDefaultLogConfig() *LogConfig {
 	return &LogConfig{
-		Level:      "none",
+		Level:      "warning",
 		AccessPath: "",
 		ErrorPath:  "",
 	}
