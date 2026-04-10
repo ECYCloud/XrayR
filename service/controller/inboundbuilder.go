@@ -63,12 +63,17 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 		//   - "Vmess"  => VMess inbound
 		if nodeInfo.NodeType == "VLESS" {
 			protocol = "vless"
+			// VLESS decryption：优先使用面板配置，未配置时默认 "none"
+			vlessDecryption := "none"
+			if nodeInfo.VlessDecryption != "" {
+				vlessDecryption = nodeInfo.VlessDecryption
+			}
 			// Enable fallback
 			if config.EnableFallback {
 				fallbackConfigs, err := buildVlessFallbacks(config.FallBackConfigs)
 				if err == nil {
 					proxySetting = &conf.VLessInboundConfig{
-						Decryption: "none",
+						Decryption: vlessDecryption,
 						Fallbacks:  fallbackConfigs,
 					}
 				} else {
@@ -76,7 +81,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 				}
 			} else {
 				proxySetting = &conf.VLessInboundConfig{
-					Decryption: "none",
+					Decryption: vlessDecryption,
 				}
 			}
 		} else {

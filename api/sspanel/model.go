@@ -64,6 +64,9 @@ type CustomConfig struct {
 	//                          表示由后端选择默认行为或不启用版本特性。
 	EnableProxyProtocol bool   `json:"enable_proxy_protocol"`
 	ProxyProtocolVer    uint64 `json:"proxy_protocol_ver"`
+	// VLESS Encryption 加密配置
+	Encryption string `json:"encryption"`
+	Decryption string `json:"decryption"`
 }
 
 // UserResponse is the response of user

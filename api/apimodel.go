@@ -92,6 +92,7 @@ type NodeInfo struct {
 	EnableSniffing   bool
 	RouteOnly        bool
 	VlessFlow        string
+	VlessDecryption  string
 	CypherMethod     string
 	ServerKey        string
 	ServiceName      string
