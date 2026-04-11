@@ -218,6 +218,7 @@ type REALITYConfig struct {
 	MaxClientVer     string
 	MaxTimeDiff      uint64
 	ShortIds         []string
+	Mldsa65Seed      string
 }
 
 // MediaCheckConfig represents the streaming media check configuration

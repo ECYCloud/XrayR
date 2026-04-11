@@ -141,6 +141,7 @@ type REALITYConfig struct {
 	MaxClientVer     string   `json:"max_client_ver,omitempty"`
 	MaxTimeDiff      uint64   `json:"max_time_diff,omitempty"`
 	ShortIds         []string `json:"short_ids,omitempty"`
+	Mldsa65Seed      string   `json:"mldsa65_seed,omitempty"`
 }
 
 // MediaCheckConfigResponse is the response of media check config

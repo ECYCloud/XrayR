@@ -1003,6 +1003,7 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 			MaxClientVer:     r.MaxClientVer,
 			MaxTimeDiff:      r.MaxTimeDiff,
 			ShortIds:         r.ShortIds,
+			Mldsa65Seed:      r.Mldsa65Seed,
 		}
 	}
 

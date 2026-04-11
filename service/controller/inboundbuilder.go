@@ -215,6 +215,7 @@ func InboundBuilder(config *Config, nodeInfo *api.NodeInfo, tag string) (*core.I
 				MaxClientVer: r.MaxClientVer,
 				MaxTimeDiff:  r.MaxTimeDiff,
 				ShortIds:     r.ShortIds,
+				Mldsa65Seed:  r.Mldsa65Seed,
 			}
 		}
 	}
