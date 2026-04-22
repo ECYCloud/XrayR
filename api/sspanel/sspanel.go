@@ -29,6 +29,7 @@ var (
 // APIClient create a api client to the panel.
 type APIClient struct {
 	client              *resty.Client
+	trafficClient       *resty.Client // 流量上报专用，禁用重试避免超时重试导致流量重复提交
 	APIHost             string
 	NodeID              int
 	Key                 string
@@ -98,6 +99,21 @@ func New(apiConfig *api.Config) *APIClient {
 	client.SetQueryParam("key", apiConfig.Key)
 	// Add support for muKey
 	client.SetQueryParam("muKey", apiConfig.Key)
+
+	// 流量上报专用客户端：禁用重试，避免超时重试导致流量重复提交
+	trafficClient := resty.New()
+	trafficClient.SetRetryCount(0)
+	trafficClient.SetTimeout(30 * time.Second)
+	trafficClient.OnError(func(req *resty.Request, err error) {
+		var v *resty.ResponseError
+		if errors.As(err, &v) {
+			log.Print(v.Err)
+		}
+	})
+	trafficClient.SetBaseURL(apiConfig.APIHost)
+	trafficClient.SetQueryParam("key", apiConfig.Key)
+	trafficClient.SetQueryParam("muKey", apiConfig.Key)
+
 	// Read local rule list
 	localRuleList := readLocalRuleList(apiConfig.RuleListPath)
 
@@ -116,6 +132,7 @@ func New(apiConfig *api.Config) *APIClient {
 
 	return &APIClient{
 		client:              client,
+		trafficClient:       trafficClient,
 		NodeID:              nodeID,
 		Key:                 apiConfig.Key,
 		APIHost:             apiConfig.APIHost,
@@ -413,7 +430,7 @@ func (c *APIClient) ReportUserTraffic(userTraffic *[]api.UserTraffic) error {
 	}
 	postData := &PostData{Data: data}
 	path := "/mod_mu/users/traffic"
-	res, err := c.client.R().
+	res, err := c.trafficClient.R().
 		SetQueryParam("node_id", strconv.Itoa(c.NodeID)).
 		SetBody(postData).
 		SetResult(&Response{}).
