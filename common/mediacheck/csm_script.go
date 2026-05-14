@@ -307,50 +307,85 @@ MediaUnlockTest_Gemini() {
     fi
 }
 
-# Claude check - 基于 Cloudflare trace 出口国家码 + Anthropic 官方不支持地区黑名单
-# 与同脚本 Gemini/TikTok 检测保持同一套路（基于 IP 地区判定）
-# 不再使用 claude.ai/login 的 HTTP 状态码，因为 Cloudflare 会对 curl 做反爬阻断（统一返回 403），
-# 导致即使在支持地区也被误判为 "No"
+# Claude check - 真实检测 + 官方黑名单兜底
+# 主判定：访问 https://claude.ai/，跟随重定向后用最终落地 URL 判断（参考 lmc999/RegionRestrictionCheck）
+#   - 落地仍在 claude.ai/   -> 解锁 (Yes)
+#   - 落地到 *app-unavailable-in-region (实测为 claude.com 域) -> 不解锁 (No)
+# 兜底判定：若主判定 Unknown（HTTP 000 / 落地 URL 无法识别），用官方明确不支持地区黑名单硬判 No
 MediaUnlockTest_Claude() {
-    # Anthropic 官方不支持的国家/地区 (ISO 3166-1 alpha-2)
+    # Anthropic 官方明确不支持的国家/地区 (ISO 3166-1 alpha-2) - 兜底用
     # 来源: https://www.anthropic.com/supported-countries (白名单未列出即不支持)
     # CN 中国大陆 / HK 香港 / MO 澳门 / RU 俄罗斯 / BY 白俄罗斯 / IR 伊朗
     # KP 朝鲜 / CU 古巴 / SY 叙利亚 / VE 委内瑞拉 / AF 阿富汗 / MM 缅甸
     CLAUDE_BANNED_COUNTRY=(CN HK MO RU BY IR KP CU SY VE AF MM)
 
-    # 优先通过 claude.ai 的 Cloudflare trace 拿真实出口国家代码（该端点不被反爬拦截）
-    local iso2_code=$(curl ${CURL_DEFAULT_OPTS} -s 'https://claude.ai/cdn-cgi/trace' --user-agent "${UA_BROWSER}" 2>/dev/null | grep '^loc=' | awk -F= '{print $2}' | tr -d '\r\n')
+    # 真实检测：同时取 HTTP 状态码与最终落地 URL（双信号判定，规避网络失败时 url_effective 仍输出原 URL 的误判）
+    # 注意：curl -w '%{url_effective}' 在 DNS/连接失败时仍会输出请求 URL，必须配合 http_code 才能判别真假
+    local probe=$(curl ${CURL_DEFAULT_OPTS} -L -o /dev/null -w '%{http_code}|%{url_effective}' --user-agent "${UA_BROWSER}" 'https://claude.ai/' 2>/dev/null)
+    local http_code=$(echo "$probe" | awk -F'|' '{print $1}')
+    local final_url=$(echo "$probe" | awk -F'|' '{print $2}')
 
-    # trace 拿不到时，退化用通用 IP 地区服务（与 Gemini/TikTok 同款）
+    # 顺带拿出口国家码用于结果展示（不参与主判定）
+    local iso2_code=$(curl ${CURL_DEFAULT_OPTS} 'https://claude.ai/cdn-cgi/trace' --user-agent "${UA_BROWSER}" 2>/dev/null | grep '^loc=' | awk -F= '{print $2}' | tr -d '\r\n')
     if [ -z "$iso2_code" ]; then
-        iso2_code=$(curl -s --max-time 3 "https://ipinfo.io/country" 2>/dev/null | tr -d '\n')
+        iso2_code=$(curl -s --max-time 3 "https://ipinfo.io/country" 2>/dev/null | tr -d '\r\n ')
     fi
     if [ -z "$iso2_code" ]; then
         iso2_code=$(curl -s --max-time 3 "https://api.country.is" 2>/dev/null | grep -oE '"country":"[A-Z]{2}"' | sed 's/"country":"//;s/"//')
     fi
     if [ -z "$iso2_code" ]; then
-        iso2_code=$(curl -s --max-time 3 "http://ip-api.com/line/?fields=countryCode" 2>/dev/null | tr -d '\n')
+        iso2_code=$(curl -s --max-time 3 "http://ip-api.com/line/?fields=countryCode" 2>/dev/null | tr -d '\r\n ')
     fi
-
-    # 完全拿不到地区信息才算 Unknown
-    if [ -z "$iso2_code" ]; then
-        writeResult "Claude" "Unknown"
-        return
-    fi
-
-    # 统一大写，避免大小写混排导致黑名单匹配失败
-    iso2_code=$(echo "$iso2_code" | tr 'a-z' 'A-Z')
-
-    # 命中官方黑名单直接判 No（含地区信息）
-    for banned in "${CLAUDE_BANNED_COUNTRY[@]}"; do
-        if [ "$iso2_code" == "$banned" ]; then
-            writeResult "Claude" "No ($iso2_code)"
-            return
+    # 严格校验：必须正好 2 个 ASCII 字母，否则视为无效（防止控制字符或异常返回污染输出和黑名单匹配）
+    if [ -n "$iso2_code" ]; then
+        iso2_code=$(echo "$iso2_code" | tr 'a-z' 'A-Z')
+        if ! echo "$iso2_code" | grep -qE '^[A-Z]{2}$'; then
+            iso2_code=""
         fi
-    done
+    fi
 
-    # 不在黑名单内即视为支持
-    writeResult "Claude" "Yes ($iso2_code)"
+    # 主判定：仅当 HTTP 状态码有效（非 000、非空）时，才信任 final_url
+    # 注意：Anthropic 当前对禁用区返回 302 重定向到 *app-unavailable-in-region；
+    # 防御性处理：若未来改成 403/451 等明确禁止状态码（即使落地仍在 claude.ai），也判 No
+    if [ -n "$http_code" ] && [ "$http_code" != "000" ]; then
+        case "$final_url" in
+            *app-unavailable-in-region*)
+                # 优先匹配不可用页面（避免被前缀通配吃掉）
+                writeResult "Claude" "No"
+                return
+                ;;
+            https://claude.ai/*|http://claude.ai/*)
+                # 防御：明确禁止类状态码（403/451）即使未重定向，也视为不解锁
+                if [ "$http_code" == "403" ] || [ "$http_code" == "451" ]; then
+                    writeResult "Claude" "No"
+                    return
+                fi
+                if [ -n "$iso2_code" ]; then
+                    writeResult "Claude" "Yes ($iso2_code)"
+                else
+                    writeResult "Claude" "Yes"
+                fi
+                return
+                ;;
+        esac
+    fi
+
+    # 主判定失败（网络异常 / 落地 URL 不可识别）：使用官方黑名单做兜底硬判
+    if [ -n "$iso2_code" ]; then
+        for banned in "${CLAUDE_BANNED_COUNTRY[@]}"; do
+            if [ "$iso2_code" == "$banned" ]; then
+                writeResult "Claude" "No"
+                return
+            fi
+        done
+    fi
+
+    # 兜底也命中不了 -> Unknown（含地区信息便于排查）
+    if [ -n "$iso2_code" ]; then
+        writeResult "Claude" "Unknown ($iso2_code)"
+    else
+        writeResult "Claude" "Unknown"
+    fi
 }
 
 # TikTok check - region-based detection
