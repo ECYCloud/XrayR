@@ -307,59 +307,76 @@ MediaUnlockTest_Gemini() {
     fi
 }
 
-# Claude check
+# Claude check - 基于 HTTP 状态码 + Cloudflare trace + 官方不支持地区黑名单
+# 与同脚本 OpenAI/TikTok 检测保持同一套路，避免空 UA 被 Cloudflare 拦截导致 Unknown
 MediaUnlockTest_Claude() {
-    local tmpresult=$(curl -s 'https://claude.ai/' -H 'authority: claude.ai' -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: " -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-dest: document' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-site: none' -H 'sec-fetch-user: ?1' -H 'upgrade-insecure-requests: 1' --user-agent "")
+    # Anthropic 官方不支持的国家/地区 (ISO 3166-1 alpha-2)
+    # 来源: https://www.anthropic.com/supported-countries (白名单未列出即不支持)
+    # CN 中国大陆 / HK 香港 / MO 澳门 / RU 俄罗斯 / BY 白俄罗斯 / IR 伊朗
+    # KP 朝鲜 / CU 古巴 / SY 叙利亚 / VE 委内瑞拉 / AF 阿富汗 / MM 缅甸
+    CLAUDE_BANNED_COUNTRY=(CN HK MO RU BY IR KP CU SY VE AF MM)
 
-    if [ -z "$tmpresult" ]; then
+    # 通过 claude.ai 的 Cloudflare trace 拿真实出口国家代码
+    local iso2_code=$(curl ${CURL_DEFAULT_OPTS} -s 'https://claude.ai/cdn-cgi/trace' --user-agent "${UA_BROWSER}" 2>/dev/null | grep '^loc=' | awk -F= '{print $2}' | tr -d '\r\n')
+
+    # 探测 claude.ai 登录页的 HTTP 状态码
+    local httpCode=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://claude.ai/login' -w '%{http_code}' -o /dev/null \
+        -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
+        -H 'accept-language: en-US,en;q=0.9' \
+        --user-agent "${UA_BROWSER}")
+
+    # 完全连不上才算 Unknown
+    if [ "$httpCode" == "000" ] && [ -z "$iso2_code" ]; then
         writeResult "Claude" "Unknown"
         return
     fi
 
-    # 检查是否被阻止访问
-    local isBlocked=$(echo "$tmpresult" | grep -i 'not available in your country\|region restricted\|access denied\|blocked\|unavailable')
-
-    # 通过多种方式获取地区信息
-    local region=""
-
-    # 方法1: 从页面中提取国家代码
-    region=$(echo "$tmpresult" | grep -oP '"country":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
-
-    # 方法2: 如果方法1失败，尝试其他模式
-    if [ -z "$region" ]; then
-        region=$(echo "$tmpresult" | grep -oP '"countryCode":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
+    # 命中官方黑名单直接判 No（含地区信息）
+    if [ -n "$iso2_code" ]; then
+        for banned in "${CLAUDE_BANNED_COUNTRY[@]}"; do
+            if [ "$iso2_code" == "$banned" ]; then
+                writeResult "Claude" "No ($iso2_code)"
+                return
+            fi
+        done
     fi
 
-    # 方法3: 尝试从location相关字段获取
-    if [ -z "$region" ]; then
-        region=$(echo "$tmpresult" | grep -oP '"location":"[A-Z]{2}"' | cut -d'"' -f4 | head -n 1)
-    fi
-
-    # 方法4: 如果以上都失败，通过IP服务获取地区
-    if [ -z "$region" ]; then
-        region=$(curl -s --max-time 5 "https://api.country.is" | grep -oP '"country":"[A-Z]{2}"' | cut -d'"' -f4)
-    fi
-
-    # 检查Claude是否可用（没有被阻止且页面正常加载）
-    local isAvailable=$(echo "$tmpresult" | grep -i 'claude\|anthropic')
-
-    if [ -n "$isBlocked" ]; then
-        writeResult "Claude" "No"
+    # 403 表示被边缘节点拒绝（地区限制）
+    if [ "$httpCode" == "403" ]; then
+        if [ -n "$iso2_code" ]; then
+            writeResult "Claude" "No ($iso2_code)"
+        else
+            writeResult "Claude" "No"
+        fi
         return
     fi
 
-    if [ -n "$isAvailable" ] && [ -n "$region" ]; then
-        writeResult "Claude" "Yes ($region)"
-    elif [ -n "$isAvailable" ]; then
-        # 如果服务可用但无法获取地区，使用备用方法
-        local fallback_region=$(curl -s --max-time 3 "http://ip-api.com/json" | grep -oP '"countryCode":"[A-Z]{2}"' | cut -d'"' -f4)
-        if [ -n "$fallback_region" ]; then
-            writeResult "Claude" "Yes ($fallback_region)"
+    # 正常返回，进一步确认是否落到 "not available" 提示页
+    if [ "$httpCode" == "200" ]; then
+        local content=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://claude.ai/login' --user-agent "${UA_BROWSER}")
+        local isUnavailable=$(echo "$content" | grep -iE 'not available in your (country|region)|unavailable in your (country|region)|region restricted')
+        if [ -n "$isUnavailable" ]; then
+            if [ -n "$iso2_code" ]; then
+                writeResult "Claude" "No ($iso2_code)"
+            else
+                writeResult "Claude" "No"
+            fi
+            return
+        fi
+
+        if [ -n "$iso2_code" ]; then
+            writeResult "Claude" "Yes ($iso2_code)"
         else
             writeResult "Claude" "Yes"
         fi
+        return
+    fi
+
+    # 其他未知状态码：若已拿到 trace 地区，按地区判定可用性，否则 Unknown
+    if [ -n "$iso2_code" ]; then
+        writeResult "Claude" "Yes ($iso2_code)"
     else
-        writeResult "Claude" "No"
+        writeResult "Claude" "Unknown"
     fi
 }
 

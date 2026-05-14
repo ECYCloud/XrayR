@@ -499,13 +499,21 @@ func (c *APIClient) GetNodeRule() (*[]api.DetectRule, error) {
 }
 
 // parseExemptUsers converts the panel's exempt_users JSON to ExemptUser slice.
-// Handles both JSON object {"1":"*","2":"1,3"} and empty JSON array [] (PHP quirk).
+// Expected format (object value):
+//
+//	{"<uid>": {"rules": "*"|"id,id,...", "nodes": "*"|"nid,nid,..."}, ...}
+//
+// An empty JSON array [] (a PHP quirk for empty associative arrays) is treated
+// as "no exempt users".
 func parseExemptUsers(raw json.RawMessage) []api.ExemptUser {
 	if len(raw) == 0 {
 		return nil
 	}
-	// Try to unmarshal as map[string]string (normal case: JSON object)
-	var m map[string]string
+	type exemptItem struct {
+		Rules string `json:"rules"`
+		Nodes string `json:"nodes"`
+	}
+	var m map[string]exemptItem
 	if err := json.Unmarshal(raw, &m); err != nil {
 		// Likely an empty JSON array [] — not an error, just no exempt users
 		return nil
@@ -513,23 +521,35 @@ func parseExemptUsers(raw json.RawMessage) []api.ExemptUser {
 	if len(m) == 0 {
 		return nil
 	}
+	splitIDs := func(s string) []int {
+		var ids []int
+		for _, p := range strings.Split(s, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if id, err := strconv.Atoi(p); err == nil {
+				ids = append(ids, id)
+			}
+		}
+		return ids
+	}
 	var result []api.ExemptUser
-	for uidStr, val := range m {
+	for uidStr, item := range m {
 		uid, err := strconv.Atoi(uidStr)
 		if err != nil {
 			continue
 		}
 		eu := api.ExemptUser{UID: uid}
-		if val == "*" {
+		if item.Rules == "*" {
 			eu.GlobalExempt = true
 		} else {
-			parts := strings.Split(val, ",")
-			for _, p := range parts {
-				p = strings.TrimSpace(p)
-				if rid, err := strconv.Atoi(p); err == nil {
-					eu.ExemptRuleIDs = append(eu.ExemptRuleIDs, rid)
-				}
-			}
+			eu.ExemptRuleIDs = splitIDs(item.Rules)
+		}
+		if item.Nodes == "*" {
+			eu.GlobalNode = true
+		} else {
+			eu.ExemptNodeIDs = splitIDs(item.Nodes)
 		}
 		result = append(result, eu)
 	}

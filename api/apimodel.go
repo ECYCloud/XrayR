@@ -202,11 +202,14 @@ type DetectResult struct {
 }
 
 // ExemptUser represents a user's audit exemption configuration.
-// ExemptRuleIDs is nil for global exemption ("*"), or a list of rule IDs for partial exemption.
+// Rules dimension: GlobalExempt=true means exempt from all rules; otherwise ExemptRuleIDs lists allowed rule IDs.
+// Nodes dimension: GlobalNode=true means exempt on all nodes; otherwise ExemptNodeIDs lists nodes where the exemption applies.
 type ExemptUser struct {
 	UID           int
 	GlobalExempt  bool  // true = exempt from all rules
 	ExemptRuleIDs []int // non-nil only when GlobalExempt is false
+	GlobalNode    bool  // true = exemption applies on all nodes
+	ExemptNodeIDs []int // non-nil only when GlobalNode is false
 }
 
 type REALITYConfig struct {

@@ -43,13 +43,32 @@ func (r *Manager) UpdateExemptUsers(users []api.ExemptUser) {
 	}
 }
 
-// isExempt checks if a user (by UID) is exempt from a specific rule
-func (r *Manager) isExempt(uid int, ruleID int) bool {
+// isExempt checks if a user (by UID) is exempt from a specific rule on a given node.
+// nodeID < 0 means "node unknown" — in that case we still respect the rules-dimension
+// exemption to avoid over-blocking, but cannot enforce node-scope precisely.
+func (r *Manager) isExempt(uid int, ruleID int, nodeID int) bool {
 	val, ok := r.exemptUsers.Load(uid)
 	if !ok {
 		return false
 	}
 	eu := val.(*api.ExemptUser)
+	// 1) Node-dimension gate: must match either "all nodes" or this nodeID
+	if !eu.GlobalNode {
+		if nodeID < 0 {
+			return false
+		}
+		matched := false
+		for _, nid := range eu.ExemptNodeIDs {
+			if nid == nodeID {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	// 2) Rule-dimension gate
 	if eu.GlobalExempt {
 		return true
 	}
@@ -59,6 +78,20 @@ func (r *Manager) isExempt(uid int, ruleID int) bool {
 		}
 	}
 	return false
+}
+
+// nodeIDFromTag extracts the trailing NodeID from a XrayR-managed tag.
+// Tag format: {Protocol}_{IP}_{Port}_{NodeID}
+// Returns -1 when the tag does not carry a parseable NodeID.
+func nodeIDFromTag(tag string) int {
+	idx := strings.LastIndex(tag, "_")
+	if idx < 0 || idx == len(tag)-1 {
+		return -1
+	}
+	if n, err := strconv.Atoi(tag[idx+1:]); err == nil {
+		return n
+	}
+	return -1
 }
 
 func (r *Manager) UpdateRule(tag string, newRuleList []api.DetectRule) error {
@@ -96,13 +129,15 @@ func (r *Manager) Detect(tag string, destination string, userKey string, srcIP s
 			uid = n
 		}
 	}
+	// Resolve current node ID from tag (format: {Protocol}_{IP}_{Port}_{NodeID})
+	nodeID := nodeIDFromTag(tag)
 	// If we have some rule for this inbound
 	if value, ok := r.InboundRule.Load(tag); ok {
 		ruleList := value.([]api.DetectRule)
 		for _, rule := range ruleList {
 			if rule.Pattern.Match([]byte(destination)) {
-				// Check if user is exempt from this rule
-				if uid >= 0 && r.isExempt(uid, rule.ID) {
+				// Check if user is exempt from this rule on the current node
+				if uid >= 0 && r.isExempt(uid, rule.ID, nodeID) {
 					continue
 				}
 				hitRuleID = rule.ID
