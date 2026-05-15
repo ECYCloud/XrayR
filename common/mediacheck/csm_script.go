@@ -345,8 +345,10 @@ MediaUnlockTest_Claude() {
     fi
 
     # 主判定：仅当 HTTP 状态码有效（非 000、非空）时，才信任 final_url
-    # 注意：Anthropic 当前对禁用区返回 302 重定向到 *app-unavailable-in-region；
-    # 防御性处理：若未来改成 403/451 等明确禁止状态码（即使落地仍在 claude.ai），也判 No
+    # 关键原则：Anthropic 的地区拦截信号是「跳到 *app-unavailable-in-region*」，
+    # 仅看落地 URL，不再以 HTTP 状态码做二次否定。
+    # 原因：Cloudflare 反爬会对带 curl 指纹的请求返回 403（URL 不跳转），
+    # 该 403 与地区是否支持无关，若以此判 No 会把所有支持地区也错判为 No。
     if [ -n "$http_code" ] && [ "$http_code" != "000" ]; then
         case "$final_url" in
             *app-unavailable-in-region*)
@@ -355,11 +357,7 @@ MediaUnlockTest_Claude() {
                 return
                 ;;
             https://claude.ai/*|http://claude.ai/*)
-                # 防御：明确禁止类状态码（403/451）即使未重定向，也视为不解锁
-                if [ "$http_code" == "403" ] || [ "$http_code" == "451" ]; then
-                    writeResult "Claude" "No"
-                    return
-                fi
+                # 落地仍在 claude.ai：Anthropic 没有对该出口做地区拦截，判为支持
                 if [ -n "$iso2_code" ]; then
                     writeResult "Claude" "Yes ($iso2_code)"
                 else
@@ -380,12 +378,8 @@ MediaUnlockTest_Claude() {
         done
     fi
 
-    # 兜底也命中不了 -> Unknown（含地区信息便于排查）
-    if [ -n "$iso2_code" ]; then
-        writeResult "Claude" "Unknown ($iso2_code)"
-    else
-        writeResult "Claude" "Unknown"
-    fi
+    # 兜底也命中不了 -> Unknown（不带国家码，保持结果简洁）
+    writeResult "Claude" "Unknown"
 }
 
 # TikTok check - region-based detection
