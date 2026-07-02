@@ -1,11 +1,11 @@
-// Package mediacheck provides streaming media unlock detection functionality.
+// Package unlockcheck provides streaming unlock detection functionality.
 // This file contains the embedded csm.sh script for local execution.
 // Script source: https://github.com/ECYCloud/check-stream-media
 // All detection logic is embedded locally, no remote download required.
 // Optimized for parallel execution to reduce detection time.
-package mediacheck
+package unlockcheck
 
-// CSM_SCRIPT contains the complete csm.sh script for media unlock detection.
+// CSM_SCRIPT contains the complete csm.sh script for unlock detection.
 // This script is executed locally without downloading from remote.
 // Uses parallel execution for faster detection (typically 10-15 seconds).
 const CSM_SCRIPT = `#!/bin/bash
@@ -21,9 +21,9 @@ DISNEY_COOKIE_1='grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exc
 DISNEY_COOKIE_8='{"query":"mutation refreshToken($input: RefreshTokenInput!) {\n            refreshToken(refreshToken: $input) {\n                activeSession {\n                    sessionId\n                }\n            }\n        }","variables":{"input":{"refreshToken":"ILOVEDISNEY"}}}'
 
 # Result directory for parallel execution
-RESULT_DIR="/tmp/xrayr_media_check"
-RESULT_FILE="/tmp/xrayr_media_check_result.json"
-LOCK_FILE="/tmp/xrayr_media_check.lock"
+RESULT_DIR="/tmp/xrayr_unlock_check"
+RESULT_FILE="/tmp/xrayr_unlock_check_result.json"
+LOCK_FILE="/tmp/xrayr_unlock_check.lock"
 
 # Initialize result directory
 initResultDir() {
@@ -66,7 +66,7 @@ EOF
 }
 
 # Netflix check - improved region detection
-MediaUnlockTest_Netflix() {
+UnlockTest_Netflix() {
     local result1=$(curl ${CURL_DEFAULT_OPTS} -fsL 'https://www.netflix.com/title/81280792' -w %{http_code} -o /dev/null -H 'host: www.netflix.com' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: ${UA_SEC_CH_UA}" -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-site: none' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-user: ?1' -H 'sec-fetch-dest: document' --user-agent "${UA_BROWSER}")
     local result2=$(curl ${CURL_DEFAULT_OPTS} -fsL 'https://www.netflix.com/title/70143836' -w %{http_code} -o /dev/null -H 'host: www.netflix.com' -H 'accept-language: en-US,en;q=0.9' -H "sec-ch-ua: ${UA_SEC_CH_UA}" -H 'sec-ch-ua-mobile: ?0' -H 'sec-ch-ua-platform: "Windows"' -H 'sec-fetch-site: none' -H 'sec-fetch-mode: navigate' -H 'sec-fetch-user: ?1' -H 'sec-fetch-dest: document' --user-agent "${UA_BROWSER}")
 
@@ -101,7 +101,7 @@ MediaUnlockTest_Netflix() {
 }
 
 # YouTube Premium check
-MediaUnlockTest_YouTube_Premium() {
+UnlockTest_YouTube_Premium() {
     local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://www.youtube.com/premium' -H 'accept-language: en-US,en;q=0.9' -H 'cookie: YSC=FSCWhKo2Zgw; VISITOR_PRIVACY_METADATA=CgJERRIEEgAgYQ%3D%3D; PREF=f7=4000; __Secure-YEC=CgtRWTBGTFExeV9Iayjele2yBjIKCgJERRIEEgAgYQ%3D%3D; SOCS=CAISOAgDEitib3FfaWRlbnRpdHlmcm9udGVuZHVpc2VydmVyXzIwMjQwNTI2LjAxX3AwGgV6aC1DTiACGgYIgMnpsgY; VISITOR_INFO1_LIVE=Di84mAIbgKY; __Secure-BUCKET=CGQ' --user-agent "${UA_BROWSER}")
     if [ -z "$tmpresult" ]; then
         writeResult "YouTube_Premium" "Unknown"
@@ -133,7 +133,7 @@ MediaUnlockTest_YouTube_Premium() {
 }
 
 # Disney+ check
-MediaUnlockTest_DisneyPlus() {
+UnlockTest_DisneyPlus() {
     local PreAssertion=$(curl -4 --user-agent "${UA_Browser}" -s --max-time 8 -X POST "https://disney.api.edge.bamgrid.com/devices" -H "authorization: Bearer ZGlzbmV5JmJyb3dzZXImMS4wLjA.Cu56AgSfBTDag5NiRA81oLHkDZfu5L3CKadnefEAY84" -H "content-type: application/json; charset=UTF-8" -d '{"deviceFamily":"browser","applicationRuntime":"chrome","deviceProfile":"windows","attributes":{}}' 2>&1)
     if [[ "$PreAssertion" == "curl"* ]] || [ -z "$PreAssertion" ]; then
         writeResult "DisneyPlus" "Unknown"
@@ -186,7 +186,7 @@ MediaUnlockTest_DisneyPlus() {
 }
 
 # HBO Max check
-MediaUnlockTest_HBOMax() {
+UnlockTest_HBOMax() {
     local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sLi 'https://www.max.com/' -w "_TAG_%{http_code}_TAG_" --user-agent "${UA_Browser}")
     local httpCode=$(echo "$tmpresult" | grep '_TAG_' | awk -F'_TAG_' '{print $2}')
     if [ "$httpCode" == '000' ]; then
@@ -211,7 +211,7 @@ MediaUnlockTest_HBOMax() {
 }
 
 # Prime Video check
-MediaUnlockTest_PrimeVideo() {
+UnlockTest_PrimeVideo() {
     local tmpresult=$(curl ${CURL_DEFAULT_OPTS} -sL 'https://www.primevideo.com' --user-agent "${UA_BROWSER}")
     if [ -z "$tmpresult" ]; then
         writeResult "AmazonPrime" "Unknown"
@@ -237,7 +237,7 @@ MediaUnlockTest_PrimeVideo() {
 }
 
 # OpenAI check
-MediaUnlockTest_OpenAI() {
+UnlockTest_OpenAI() {
     SUPPORT_COUNTRY=(AL DZ AD AO AG AR AM AU AT AZ BS BD BB BE BZ BJ BT BO BA BW BR BN BG BF CV CA CL CO KM CG CR CI HR CY CZ DK DJ DM DO EC SV EE EG FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT VA HN HU IS IN ID IQ IE IL IT JM JP JO KZ KE KI KW KG LV LB LS LR LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PS PA PG PY PE PH PL PT QA RO RW KN LC VC WS SM ST SN RS SC SL SG SK SI SB ZA KR ES LK SR SE CH TW TZ TH TL TG TO TT TN TR TV UG UA AE GB US UY VU ZM)
 
     local tmpresult1=$(curl ${CURL_DEFAULT_OPTS} -s 'https://api.openai.com/compliance/cookie_requirements' -H 'authorization: Bearer null' --user-agent "${UA_BROWSER}")
@@ -273,7 +273,7 @@ MediaUnlockTest_OpenAI() {
 # Google Gemini check - region-based detection
 # Based on official supported regions: https://ai.google.dev/gemini-api/docs/available-regions
 # If YouTube Premium is not available, Gemini is also not available
-MediaUnlockTest_Gemini() {
+UnlockTest_Gemini() {
     # Check if YouTube Premium result exists and is "No"
     local ytResult=$(cat "$RESULT_DIR/YouTube_Premium" 2>/dev/null)
     if [[ "$ytResult" == "No"* ]]; then
@@ -312,7 +312,7 @@ MediaUnlockTest_Gemini() {
 #   - 落地仍在 claude.ai/   -> 解锁 (Yes)
 #   - 落地到 *app-unavailable-in-region (实测为 claude.com 域) -> 不解锁 (No)
 # 兜底判定：若主判定 Unknown（HTTP 000 / 落地 URL 无法识别），用官方明确不支持地区黑名单硬判 No
-MediaUnlockTest_Claude() {
+UnlockTest_Claude() {
     # Anthropic 官方明确不支持的国家/地区 (ISO 3166-1 alpha-2) - 兜底用
     # 来源: https://www.anthropic.com/supported-countries (白名单未列出即不支持)
     # CN 中国大陆 / HK 香港 / MO 澳门 / RU 俄罗斯 / BY 白俄罗斯 / IR 伊朗
@@ -385,7 +385,7 @@ MediaUnlockTest_Claude() {
 # TikTok check - region-based detection
 # TikTok is banned or unavailable in certain countries/regions
 # Uses blacklist approach similar to OpenAI/Gemini detection
-MediaUnlockTest_TikTok() {
+UnlockTest_TikTok() {
     # TikTok banned/unavailable countries (ISO 3166-1 alpha-2 codes)
     # Official government bans:
     #   IN: India (government ban since 2020)
@@ -436,21 +436,21 @@ runCheck() {
     initResultDir
 
     # First, run YouTube Premium check (Gemini depends on this result)
-    MediaUnlockTest_YouTube_Premium &
+    UnlockTest_YouTube_Premium &
     local yt_pid=$!
 
     # Run other checks in parallel (except Gemini)
-    MediaUnlockTest_Netflix &
-    MediaUnlockTest_DisneyPlus &
-    MediaUnlockTest_HBOMax &
-    MediaUnlockTest_PrimeVideo &
-    MediaUnlockTest_OpenAI &
-    MediaUnlockTest_Claude &
-    MediaUnlockTest_TikTok &
+    UnlockTest_Netflix &
+    UnlockTest_DisneyPlus &
+    UnlockTest_HBOMax &
+    UnlockTest_PrimeVideo &
+    UnlockTest_OpenAI &
+    UnlockTest_Claude &
+    UnlockTest_TikTok &
 
     # Wait for YouTube Premium to complete before running Gemini
     wait $yt_pid
-    MediaUnlockTest_Gemini &
+    UnlockTest_Gemini &
 
     # Wait for all background processes to complete
     wait

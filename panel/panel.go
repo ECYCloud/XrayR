@@ -21,7 +21,7 @@ import (
 	"github.com/ECYCloud/XrayR/api/sspanel"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	_ "github.com/ECYCloud/XrayR/cmd/distro/all"
-	"github.com/ECYCloud/XrayR/common/mediacheck"
+	"github.com/ECYCloud/XrayR/common/unlockcheck"
 	"github.com/ECYCloud/XrayR/common/mylego"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/anytls"
@@ -296,10 +296,10 @@ func (p *Panel) Start() {
 			continue
 		}
 		if nodeID, err := strconv.Atoi(nodeIDStr); err == nil && nodeID > 0 {
-			mediacheck.RegisterNodeID(nodeID)
+			unlockcheck.RegisterNodeID(nodeID)
 		}
 	}
-	log.Printf("[MediaCheck] Pre-registered all %d node IDs for shared detection", len(mediacheck.GetRegisteredNodeIDs()))
+	log.Printf("[UnlockCheck] Pre-registered all %d node IDs for shared detection", len(unlockcheck.GetRegisteredNodeIDs()))
 
 	// Load Core
 	server := p.loadCore(p.panelConfig)

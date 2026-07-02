@@ -23,7 +23,7 @@ import (
 	"github.com/ECYCloud/XrayR/api"
 	"github.com/ECYCloud/XrayR/app/mydispatcher"
 	"github.com/ECYCloud/XrayR/common/limiter"
-	"github.com/ECYCloud/XrayR/common/mediacheck"
+	"github.com/ECYCloud/XrayR/common/unlockcheck"
 	"github.com/ECYCloud/XrayR/common/mylego"
 	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
@@ -55,10 +55,10 @@ type Controller struct {
 	dispatcher   *mydispatcher.DefaultDispatcher
 	startAt      time.Time
 	logger       *log.Entry
-	// Media check related fields
-	mediaChecker       *mediacheck.Checker
-	lastMediaCheckTime time.Time
-	mediaCheckMutex    sync.Mutex
+	// Unlock check related fields
+	unlockChecker       *unlockcheck.Checker
+	lastUnlockCheckTime time.Time
+	unlockCheckMutex    sync.Mutex
 	// Recovery tracking for IP whitelist / connectivity issues
 	consecutiveFailures int
 	lastFailureTime     time.Time
@@ -222,9 +222,9 @@ func (c *Controller) Start() error {
 			}})
 	}
 
-	// Initialize media check if enabled
-	if err := c.initMediaCheck(); err != nil {
-		c.logger.Printf("Failed to initialize media check: %v", err)
+	// Initialize unlock check if enabled
+	if err := c.initUnlockCheck(); err != nil {
+		c.logger.Printf("Failed to initialize unlock check: %v", err)
 	}
 
 	// Start periodic tasks
@@ -855,57 +855,57 @@ func (c *Controller) certMonitor() error {
 	return nil
 }
 
-// initMediaCheck initializes the media check periodic task.
+// initUnlockCheck initializes the unlock check periodic task.
 // The actual configuration is fetched dynamically before each check (hot reload).
 // Note: Node IDs are pre-registered in panel.Start() before any controller starts.
-func (c *Controller) initMediaCheck() error {
-	c.mediaChecker = mediacheck.NewChecker(c.logger)
-	// Initialize lastMediaCheckTime to zero so first check runs immediately after startup
-	c.lastMediaCheckTime = time.Time{}
+func (c *Controller) initUnlockCheck() error {
+	c.unlockChecker = unlockcheck.NewChecker(c.logger)
+	// Initialize lastUnlockCheckTime to zero so first check runs immediately after startup
+	c.lastUnlockCheckTime = time.Time{}
 
-	// Add media check periodic task with a base interval of 1 minute
-	// The actual check execution is controlled by mediaCheckMonitor based on panel config
+	// Add unlock check periodic task with a base interval of 1 minute
+	// The actual check execution is controlled by unlockCheckMonitor based on panel config
 	c.tasks = append(c.tasks, periodicTask{
-		tag: "media check",
+		tag: "unlock check",
 		Periodic: &task.Periodic{
 			Interval: 1 * time.Minute,
-			Execute:  c.mediaCheckMonitor,
+			Execute:  c.unlockCheckMonitor,
 		}})
 
-	c.logger.Printf("Media check task initialized for node %d (config will be fetched from panel)", c.nodeInfo.NodeID)
+	c.logger.Printf("Unlock check task initialized for node %d (config will be fetched from panel)", c.nodeInfo.NodeID)
 
 	return nil
 }
 
-// mediaCheckMonitor performs the streaming media unlock check and reports results.
+// unlockCheckMonitor performs the streaming unlock check and reports results.
 // It fetches the latest configuration from panel before each check (hot reload).
 // Uses a node registry system: the first node to execute detection reports for ALL registered nodes.
 // This eliminates the dependency on cache timing between nodes.
 // Checks are executed at whole hours (00:00, 01:00, etc.) based on the configured interval.
-func (c *Controller) mediaCheckMonitor() error {
-	if c.mediaChecker == nil {
+func (c *Controller) unlockCheckMonitor() error {
+	if c.unlockChecker == nil {
 		return nil
 	}
 
 	// Use mutex to prevent concurrent execution within this node
-	c.mediaCheckMutex.Lock()
-	defer c.mediaCheckMutex.Unlock()
+	c.unlockCheckMutex.Lock()
+	defer c.unlockCheckMutex.Unlock()
 
 	nodeID := c.nodeInfo.NodeID
 
 	// Check if this node has already been reported in this hour (by any node)
-	if mediacheck.HasNodeReported(nodeID) {
+	if unlockcheck.HasNodeReported(nodeID) {
 		return nil
 	}
 
 	// Fetch latest config from panel (hot reload)
-	config, err := c.apiClient.GetMediaCheckConfig()
+	config, err := c.apiClient.GetUnlockCheckConfig()
 	if err != nil {
-		c.logger.Printf("[MediaCheck] Node %d: Failed to get media check config: %v", nodeID, err)
+		c.logger.Printf("[UnlockCheck] Node %d: Failed to get unlock check config: %v", nodeID, err)
 		return nil
 	}
 
-	// Check if media check is enabled
+	// Check if unlock check is enabled
 	if !config.Enabled {
 		return nil
 	}
@@ -924,43 +924,43 @@ func (c *Controller) mediaCheckMonitor() error {
 	}
 
 	// Try to acquire the check lock (only one node should perform the actual check)
-	if !mediacheck.TryAcquireCheckLock() {
+	if !unlockcheck.TryAcquireCheckLock() {
 		// Another node is performing the check, skip this node
 		// The node that acquired the lock will report for all nodes
-		c.logger.Printf("[MediaCheck] Node %d: Another node is performing check, skipping", nodeID)
+		c.logger.Printf("[UnlockCheck] Node %d: Another node is performing check, skipping", nodeID)
 		return nil
 	}
 
 	// This node acquired the lock, perform the check and report for ALL registered nodes
-	defer mediacheck.ReleaseCheckLock()
+	defer unlockcheck.ReleaseCheckLock()
 
-	c.logger.Printf("[MediaCheck] Node %d: Performing check at %02d:%02d (interval: %d hours)", nodeID, currentHour, now.Minute(), config.CheckInterval)
+	c.logger.Printf("[UnlockCheck] Node %d: Performing check at %02d:%02d (interval: %d hours)", nodeID, currentHour, now.Minute(), config.CheckInterval)
 
 	// Run all checks (will use csm.sh script)
-	results := c.mediaChecker.RunAllChecks()
+	results := c.unlockChecker.RunAllChecks()
 
 	// Store results in global cache
-	mediacheck.SetCachedResults(results)
+	unlockcheck.SetCachedResults(results)
 
 	// Convert results to JSON
 	resultJSON := results.ToJSON()
-	c.logger.Printf("[MediaCheck] Node %d: Results: %s", nodeID, resultJSON)
+	c.logger.Printf("[UnlockCheck] Node %d: Results: %s", nodeID, resultJSON)
 
 	// Get all registered node IDs and report for each one
-	allNodeIDs := mediacheck.GetRegisteredNodeIDs()
-	c.logger.Printf("[MediaCheck] Node %d: Reporting results for %d nodes: %v", nodeID, len(allNodeIDs), allNodeIDs)
+	allNodeIDs := unlockcheck.GetRegisteredNodeIDs()
+	c.logger.Printf("[UnlockCheck] Node %d: Reporting results for %d nodes: %v", nodeID, len(allNodeIDs), allNodeIDs)
 
 	for _, targetNodeID := range allNodeIDs {
-		if err := c.apiClient.ReportMediaCheckResultForNode(targetNodeID, resultJSON); err != nil {
-			c.logger.Printf("[MediaCheck] Node %d: Failed to report for node %d: %v", nodeID, targetNodeID, err)
+		if err := c.apiClient.ReportUnlockCheckResultForNode(targetNodeID, resultJSON); err != nil {
+			c.logger.Printf("[UnlockCheck] Node %d: Failed to report for node %d: %v", nodeID, targetNodeID, err)
 		} else {
-			c.logger.Printf("[MediaCheck] Node %d: Reported successfully for node %d", nodeID, targetNodeID)
-			mediacheck.MarkNodeReported(targetNodeID)
+			c.logger.Printf("[UnlockCheck] Node %d: Reported successfully for node %d", nodeID, targetNodeID)
+			unlockcheck.MarkNodeReported(targetNodeID)
 		}
 	}
 
 	// Update last report time for this node
-	c.lastMediaCheckTime = now
+	c.lastUnlockCheckTime = now
 
 	return nil
 }

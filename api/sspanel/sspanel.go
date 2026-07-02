@@ -1267,10 +1267,10 @@ func compareVersion(version1, version2 string) int {
 	return 0
 }
 
-// GetMediaCheckConfig fetches the streaming media check configuration from the panel.
-// This includes whether media check is enabled and the check interval in hours.
-func (c *APIClient) GetMediaCheckConfig() (*api.MediaCheckConfig, error) {
-	path := "/mod_mu/media/config"
+// GetUnlockCheckConfig fetches the streaming unlock check configuration from the panel.
+// This includes whether unlock check is enabled and the check interval in hours.
+func (c *APIClient) GetUnlockCheckConfig() (*api.UnlockCheckConfig, error) {
+	path := "/mod_mu/unlock/config"
 	res, err := c.client.R().
 		SetQueryParam("node_id", strconv.Itoa(c.NodeID)).
 		SetResult(&Response{}).
@@ -1282,28 +1282,28 @@ func (c *APIClient) GetMediaCheckConfig() (*api.MediaCheckConfig, error) {
 		return nil, err
 	}
 
-	configResponse := new(MediaCheckConfigResponse)
+	configResponse := new(UnlockCheckConfigResponse)
 	if err := json.Unmarshal(response.Data, configResponse); err != nil {
-		return nil, fmt.Errorf("unmarshal media check config failed: %s", err)
+		return nil, fmt.Errorf("unmarshal unlock check config failed: %s", err)
 	}
 
-	return &api.MediaCheckConfig{
+	return &api.UnlockCheckConfig{
 		Enabled:       configResponse.Enabled,
 		CheckInterval: configResponse.CheckInterval,
 	}, nil
 }
 
-// ReportMediaCheckResult reports the streaming media unlock check results to the panel.
+// ReportUnlockCheckResult reports the streaming unlock check results to the panel.
 // The result parameter should be a JSON string containing all check results.
-func (c *APIClient) ReportMediaCheckResult(result string) error {
-	return c.ReportMediaCheckResultForNode(c.NodeID, result)
+func (c *APIClient) ReportUnlockCheckResult(result string) error {
+	return c.ReportUnlockCheckResultForNode(c.NodeID, result)
 }
 
-// ReportMediaCheckResultForNode reports the streaming media unlock check results for a specific node.
+// ReportUnlockCheckResultForNode reports the streaming unlock check results for a specific node.
 // This allows one node to report results for multiple nodes (e.g., when using shared detection).
-func (c *APIClient) ReportMediaCheckResultForNode(nodeID int, result string) error {
-	path := "/mod_mu/media/report"
-	postData := &MediaCheckResultPost{
+func (c *APIClient) ReportUnlockCheckResultForNode(nodeID int, result string) error {
+	path := "/mod_mu/unlock/report"
+	postData := &UnlockCheckResultPost{
 		NodeID: nodeID,
 		Result: result,
 	}

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ECYCloud/XrayR/common/mediacheck"
+	"github.com/ECYCloud/XrayR/common/unlockcheck"
 	"github.com/spf13/cobra"
 )
 
-// MediaCheckResults represents all media check results
-type MediaCheckResults struct {
+// UnlockCheckResults represents all unlock check results
+type UnlockCheckResults struct {
 	YouTubePremium string `json:"YouTube_Premium"`
 	Netflix        string `json:"Netflix"`
 	DisneyPlus     string `json:"DisneyPlus"`
@@ -27,18 +27,18 @@ type MediaCheckResults struct {
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
-		Use:   "mediacheck",
-		Short: "Manually run streaming media unlock detection",
-		Long:  "Run streaming media unlock detection manually and display results. This uses the same detection logic as the automatic check.",
+		Use:   "unlockcheck",
+		Short: "Manually run streaming unlock detection",
+		Long:  "Run streaming unlock detection manually and display results. This uses the same detection logic as the automatic check.",
 		Run: func(cmd *cobra.Command, args []string) {
-			runManualMediaCheck()
+			runManualUnlockCheck()
 		},
 	})
 }
 
-func runManualMediaCheck() {
+func runManualUnlockCheck() {
 	fmt.Println("========================================")
-	fmt.Println("  XrayR Media Unlock Detection")
+	fmt.Println("  XrayR Unlock Detection")
 	fmt.Println("========================================")
 	fmt.Println()
 	fmt.Println("Starting detection (parallel execution)...")
@@ -46,12 +46,12 @@ func runManualMediaCheck() {
 
 	startTime := time.Now()
 
-	// Get the embedded script from mediacheck package
+	// Get the embedded script from unlockcheck package
 	scriptPath := "/tmp/xrayr_manual_check.sh"
-	resultPath := "/tmp/xrayr_media_check_result.json"
+	resultPath := "/tmp/xrayr_unlock_check_result.json"
 
-	// Get the script content from mediacheck package
-	script := mediacheck.GetCSMScript()
+	// Get the script content from unlockcheck package
+	script := unlockcheck.GetCSMScript()
 
 	// Write script to temp file
 	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
@@ -79,7 +79,7 @@ func runManualMediaCheck() {
 	defer os.Remove(resultPath)
 
 	// Parse JSON results
-	var results MediaCheckResults
+	var results UnlockCheckResults
 	if err := json.Unmarshal(resultData, &results); err != nil {
 		fmt.Printf("Error: Failed to parse result JSON: %v\n", err)
 		return

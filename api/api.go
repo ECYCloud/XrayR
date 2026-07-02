@@ -19,13 +19,13 @@ type API interface {
 	GetExemptUsers() (exemptUsers []ExemptUser, err error)
 	ReportIllegal(detectResultList *[]DetectResult) (err error)
 	Debug()
-	// GetMediaCheckConfig returns the streaming media check configuration
+	// GetUnlockCheckConfig returns the streaming unlock check configuration
 	// from the panel, including the check interval in hours.
-	GetMediaCheckConfig() (config *MediaCheckConfig, err error)
-	// ReportMediaCheckResult reports the streaming media unlock check results
+	GetUnlockCheckConfig() (config *UnlockCheckConfig, err error)
+	// ReportUnlockCheckResult reports the streaming unlock check results
 	// to the panel for the current node.
-	ReportMediaCheckResult(result string) error
-	// ReportMediaCheckResultForNode reports the streaming media unlock check results
+	ReportUnlockCheckResult(result string) error
+	// ReportUnlockCheckResultForNode reports the streaming unlock check results
 	// to the panel for a specific node ID.
-	ReportMediaCheckResultForNode(nodeID int, result string) error
+	ReportUnlockCheckResultForNode(nodeID int, result string) error
 }

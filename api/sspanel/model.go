@@ -144,14 +144,14 @@ type REALITYConfig struct {
 	Mldsa65Seed      string   `json:"mldsa65_seed,omitempty"`
 }
 
-// MediaCheckConfigResponse is the response of media check config
-type MediaCheckConfigResponse struct {
+// UnlockCheckConfigResponse is the response of unlock check config
+type UnlockCheckConfigResponse struct {
 	Enabled       bool `json:"enabled"`
 	CheckInterval int  `json:"check_interval"`
 }
 
-// MediaCheckResultPost is the data structure for posting media check result
-type MediaCheckResultPost struct {
+// UnlockCheckResultPost is the data structure for posting unlock check result
+type UnlockCheckResultPost struct {
 	NodeID int    `json:"node_id"`
 	Result string `json:"result"`
 }

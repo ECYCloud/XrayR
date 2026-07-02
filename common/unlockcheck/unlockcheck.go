@@ -1,11 +1,11 @@
-// Package mediacheck provides streaming media unlock detection functionality.
+// Package unlockcheck provides streaming unlock detection functionality.
 // It checks various streaming services (Netflix, YouTube Premium, Disney+, etc.)
 // and reports the results to the panel.
 // Detection logic is 100% based on csm.sh script from:
 // https://github.com/ECYCloud/check-stream-media
 // The script is embedded locally and executed without remote download.
 // NO FALLBACK - only uses the embedded csm.sh script for 100% accuracy.
-package mediacheck
+package unlockcheck
 
 import (
 	"encoding/json"
@@ -17,10 +17,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Global cache for media check results (shared across all nodes on the same server)
+// Global cache for unlock check results (shared across all nodes on the same server)
 var (
 	globalCacheMutex    sync.RWMutex
-	globalCachedResults *MediaCheckResults
+	globalCachedResults *UnlockCheckResults
 	globalCacheTime     time.Time
 	globalCacheHour     int    // The hour when the cache was created
 	globalCacheDate     string // The date when the cache was created
@@ -37,7 +37,7 @@ var (
 	reportedDate      string       // The date when reportedNodeIDs was last reset
 )
 
-// RegisterNodeID registers a node ID for media check result sharing.
+// RegisterNodeID registers a node ID for unlock check result sharing.
 // All registered nodes will receive the same detection results.
 func RegisterNodeID(nodeID int) {
 	nodeRegistryMutex.Lock()
@@ -50,7 +50,7 @@ func RegisterNodeID(nodeID int) {
 		}
 	}
 	registeredNodeIDs = append(registeredNodeIDs, nodeID)
-	log.Infof("[MediaCheck] Registered node %d for shared detection (total: %d nodes)", nodeID, len(registeredNodeIDs))
+	log.Infof("[UnlockCheck] Registered node %d for shared detection (total: %d nodes)", nodeID, len(registeredNodeIDs))
 }
 
 // GetRegisteredNodeIDs returns all registered node IDs
@@ -106,7 +106,7 @@ func HasNodeReported(nodeID int) bool {
 }
 
 // GetCachedResults returns cached results if still valid for the current hour, otherwise returns nil
-func GetCachedResults() *MediaCheckResults {
+func GetCachedResults() *UnlockCheckResults {
 	globalCacheMutex.RLock()
 	defer globalCacheMutex.RUnlock()
 
@@ -127,7 +127,7 @@ func GetCachedResults() *MediaCheckResults {
 }
 
 // SetCachedResults stores the results in global cache
-func SetCachedResults(results *MediaCheckResults) {
+func SetCachedResults(results *UnlockCheckResults) {
 	globalCacheMutex.Lock()
 	defer globalCacheMutex.Unlock()
 
@@ -165,8 +165,8 @@ func IsChecking() bool {
 	return isChecking
 }
 
-// MediaCheckResults represents all media check results
-type MediaCheckResults struct {
+// UnlockCheckResults represents all unlock check results
+type UnlockCheckResults struct {
 	YouTubePremium string `json:"YouTube_Premium"`
 	Netflix        string `json:"Netflix"`
 	DisneyPlus     string `json:"DisneyPlus"`
@@ -178,24 +178,24 @@ type MediaCheckResults struct {
 	TikTok         string `json:"TikTok"`
 }
 
-// Checker performs media unlock checks using embedded csm.sh script
+// Checker performs unlock checks using embedded csm.sh script
 type Checker struct {
 	logger *log.Entry
 }
 
-// NewChecker creates a new media checker
+// NewChecker creates a new unlock checker
 func NewChecker(logger *log.Entry) *Checker {
 	return &Checker{
 		logger: logger,
 	}
 }
 
-// RunAllChecks performs all media unlock checks by executing embedded csm.sh script
+// RunAllChecks performs all unlock checks by executing embedded csm.sh script
 // This ensures 100% consistency with the csm.sh detection logic
 // NO FALLBACK - if script fails, returns Unknown for all services
-func (c *Checker) RunAllChecks() *MediaCheckResults {
+func (c *Checker) RunAllChecks() *UnlockCheckResults {
 	// Default results (all Unknown)
-	defaultResults := &MediaCheckResults{
+	defaultResults := &UnlockCheckResults{
 		YouTubePremium: "Unknown",
 		Netflix:        "Unknown",
 		DisneyPlus:     "Unknown",
@@ -210,35 +210,35 @@ func (c *Checker) RunAllChecks() *MediaCheckResults {
 	// Execute embedded csm.sh script (100% accurate detection)
 	scriptResults := c.runCSMScript()
 	if scriptResults != nil {
-		c.logger.Info("[MediaCheck] csm.sh script executed successfully")
+		c.logger.Info("[UnlockCheck] csm.sh script executed successfully")
 		return scriptResults
 	}
 
 	// Script failed - return default Unknown results
-	c.logger.Error("[MediaCheck] csm.sh script failed, returning Unknown for all services")
+	c.logger.Error("[UnlockCheck] csm.sh script failed, returning Unknown for all services")
 	return defaultResults
 }
 
 // runCSMScript executes the embedded csm.sh script locally, returns results or nil if failed
 // This uses the locally embedded script (CSM_SCRIPT) instead of downloading from remote
-func (c *Checker) runCSMScript() *MediaCheckResults {
+func (c *Checker) runCSMScript() *UnlockCheckResults {
 	scriptPath := "/tmp/xrayr_csm_check.sh"
-	resultPath := "/tmp/xrayr_media_check_result.json"
+	resultPath := "/tmp/xrayr_unlock_check_result.json"
 
 	// Write embedded script to temp file
-	c.logger.Info("[MediaCheck] Writing embedded csm.sh script to temp file...")
+	c.logger.Info("[UnlockCheck] Writing embedded csm.sh script to temp file...")
 	if err := os.WriteFile(scriptPath, []byte(CSM_SCRIPT), 0755); err != nil {
-		c.logger.Warnf("[MediaCheck] Failed to write script file: %v", err)
+		c.logger.Warnf("[UnlockCheck] Failed to write script file: %v", err)
 		return nil
 	}
 
 	// Execute the script
-	c.logger.Info("[MediaCheck] Executing embedded csm.sh script (100% same logic as csm.sh)...")
+	c.logger.Info("[UnlockCheck] Executing embedded csm.sh script (100% same logic as csm.sh)...")
 	execCmd := exec.Command("bash", scriptPath)
 	execCmd.Env = append(os.Environ(), "LANG=en_US.UTF-8")
 	output, err := execCmd.CombinedOutput()
 	if err != nil {
-		c.logger.Warnf("[MediaCheck] Failed to execute script: %v, output: %s", err, string(output))
+		c.logger.Warnf("[UnlockCheck] Failed to execute script: %v, output: %s", err, string(output))
 		// Clean up script file
 		os.Remove(scriptPath)
 		return nil
@@ -247,15 +247,15 @@ func (c *Checker) runCSMScript() *MediaCheckResults {
 	// Read result JSON file
 	resultData, err := os.ReadFile(resultPath)
 	if err != nil {
-		c.logger.Warnf("[MediaCheck] Failed to read result file: %v", err)
+		c.logger.Warnf("[UnlockCheck] Failed to read result file: %v", err)
 		os.Remove(scriptPath)
 		return nil
 	}
 
 	// Parse JSON results
-	var results MediaCheckResults
+	var results UnlockCheckResults
 	if err := json.Unmarshal(resultData, &results); err != nil {
-		c.logger.Warnf("[MediaCheck] Failed to parse result JSON: %v", err)
+		c.logger.Warnf("[UnlockCheck] Failed to parse result JSON: %v", err)
 		os.Remove(scriptPath)
 		os.Remove(resultPath)
 		return nil
@@ -265,12 +265,12 @@ func (c *Checker) runCSMScript() *MediaCheckResults {
 	os.Remove(scriptPath)
 	os.Remove(resultPath)
 
-	c.logger.Info("[MediaCheck] Embedded csm.sh script executed successfully")
+	c.logger.Info("[UnlockCheck] Embedded csm.sh script executed successfully")
 	return &results
 }
 
 // ToJSON converts results to JSON string
-func (r *MediaCheckResults) ToJSON() string {
+func (r *UnlockCheckResults) ToJSON() string {
 	data, err := json.Marshal(r)
 	if err != nil {
 		return "{}"
