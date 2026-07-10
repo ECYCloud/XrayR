@@ -1,6 +1,7 @@
 package anytls
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -24,6 +25,8 @@ type AnyTLSService struct {
 
 	box        *box.Box
 	inboundTag string
+	// frontListener 仅在节点开启 Proxy Protocol 时使用，见 proxyprotocol.go。
+	frontListener net.Listener
 
 	tag     string
 	startAt time.Time

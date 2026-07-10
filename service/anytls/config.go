@@ -42,9 +42,19 @@ func (s *AnyTLSService) buildSingBox() (*box.Box, string, error) {
 		},
 	}
 
+	// sing-box 自 1.6.0 起移除了内建 Proxy Protocol 支持，节点开启该选项时，
+	// AnyTLS inbound 自身只监听一个外部不可达的回环端口，真实端口改由
+	// startProxyProtocolFrontend 监听、解析并剥离 PROXY 头后再注入连接。
+	useProxyProtocol := s.nodeInfo.AcceptProxyProtocol
+	listenAddr := addr
+	listenPort := uint16(port)
+	if useProxyProtocol {
+		listenAddr = netip.MustParseAddr("127.0.0.1")
+		listenPort = 0
+	}
 	listen := option.ListenOptions{
-		Listen:     (*badoption.Addr)(&addr),
-		ListenPort: uint16(port),
+		Listen:     (*badoption.Addr)(&listenAddr),
+		ListenPort: listenPort,
 	}
 
 	tlsOpt := &option.InboundTLSOptions{
@@ -94,6 +104,17 @@ func (s *AnyTLSService) buildSingBox() (*box.Box, string, error) {
 
 	tracker := &anyTLSTracker{svc: s}
 	boxInstance.Router().AppendTracker(tracker)
+
+	if useProxyProtocol {
+		frontListener, err := s.startProxyProtocolFrontend(boxInstance, addr, uint16(port))
+		if err != nil {
+			boxInstance.Close()
+			return nil, "", err
+		}
+		s.frontListener = frontListener
+	} else {
+		s.frontListener = nil
+	}
 
 	return boxInstance, s.inboundTag, nil
 }

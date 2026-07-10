@@ -135,6 +135,10 @@ func (s *AnyTLSService) Close() error {
 		}
 	}
 	s.tasks = nil
+	if s.frontListener != nil {
+		s.frontListener.Close()
+		s.frontListener = nil
+	}
 	if s.box != nil {
 		return s.box.Close()
 	}
@@ -199,6 +203,10 @@ func (s *AnyTLSService) reloadNode(nodeInfo *api.NodeInfo) error {
 		}
 	}
 
+	if s.frontListener != nil {
+		s.frontListener.Close()
+		s.frontListener = nil
+	}
 	if s.box != nil {
 		if err := s.box.Close(); err != nil {
 			s.logger.Printf("AnyTLS reload: failed to close old box: %v", err)
