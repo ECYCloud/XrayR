@@ -105,8 +105,10 @@ func (s *AnyTLSService) buildSingBox() (*box.Box, string, error) {
 	tracker := &anyTLSTracker{svc: s}
 	boxInstance.Router().AppendTracker(tracker)
 
+	// 提前绑定真实端口以便端口冲突时立刻失败；接受循环在 box 启动完成后
+	// 由 startBox 调用 startProxyProtocolFrontend 开启。
 	if useProxyProtocol {
-		frontListener, err := s.startProxyProtocolFrontend(boxInstance, addr, uint16(port))
+		frontListener, err := createProxyProtocolListener(addr, uint16(port))
 		if err != nil {
 			boxInstance.Close()
 			return nil, "", err

@@ -85,12 +85,7 @@ func (s *AnyTLSService) Start() error {
 		return err
 	}
 	s.box = boxInstance
-
-	go func() {
-		if err := s.box.Start(); err != nil {
-			s.logger.Errorf("AnyTLS sing-box start error: %v", err)
-		}
-	}()
+	go s.startBox()
 
 	interval := time.Duration(s.config.UpdatePeriodic) * time.Second
 	s.tasks = []periodicTask{
@@ -220,15 +215,25 @@ func (s *AnyTLSService) reloadNode(nodeInfo *api.NodeInfo) error {
 	}
 	s.box = boxInstance
 	s.inboundTag = inboundTag
-
-	go func() {
-		if err := s.box.Start(); err != nil {
-			s.logger.Errorf("AnyTLS box start error after reload: %v", err)
-		}
-	}()
+	go s.startBox()
 
 	s.logger.Infof("AnyTLS node reloaded on %s:%d", s.config.ListenIP, s.nodeInfo.Port)
 	return nil
+}
+
+// startBox starts the sing-box instance and, when Proxy Protocol is enabled,
+// begins accepting connections on the frontend listener only after the box
+// (including its TLS configuration) is fully started.
+func (s *AnyTLSService) startBox() {
+	if err := s.box.Start(); err != nil {
+		s.logger.Errorf("AnyTLS sing-box start error: %v", err)
+		return
+	}
+	if s.frontListener != nil {
+		if err := s.startProxyProtocolFrontend(s.frontListener); err != nil {
+			s.logger.Errorf("AnyTLS proxy protocol frontend start error: %v", err)
+		}
+	}
 }
 
 // triggerRecovery attempts to recover from consecutive API communication failures
