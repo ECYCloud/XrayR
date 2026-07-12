@@ -220,8 +220,9 @@ func admitIP(inboundInfo *InboundInfo, userKey, ip string, uid, deviceLimit int)
 	return true
 }
 
-// EnsureOnline 供存活连接周期性复查：IP 仍在线则刷新活跃时间；
-// 若名额已被占满且该 IP 已被挤出，返回 false（调用方应断开连接）。
+// EnsureOnline 供上行方向（客户端→服务端有真实数据）周期性复查：
+// IP 仍在线则刷新活跃时间；若名额已被占满且该 IP 已被挤出，
+// 返回 false（调用方应断开连接）。
 func (l *Limiter) EnsureOnline(tag, userKey, ip string) bool {
 	value, ok := l.InboundInfo.Load(tag)
 	if !ok {
@@ -236,6 +237,51 @@ func (l *Limiter) EnsureOnline(tag, userKey, ip string) bool {
 		deviceLimit = u.DeviceLimit
 	}
 	return admitIP(inboundInfo, userKey, ip, uid, deviceLimit)
+}
+
+// VerifyOnline 供下行方向（远端→客户端）周期性复查：只读、不续期、不登记。
+// 下行流量不能证明客户端仍然存活——客户端异常离线后，远端仍可能持续向
+// 残留连接推送数据；若据此续期，离线 IP 会被无限"续命"，名额永不释放。
+// 放行条件：该 IP 仍持有新鲜名额，或该用户尚有空余名额。
+func (l *Limiter) VerifyOnline(tag, userKey, ip string) bool {
+	value, ok := l.InboundInfo.Load(tag)
+	if !ok {
+		return true
+	}
+	inboundInfo := value.(*InboundInfo)
+
+	var deviceLimit int
+	if v, ok := inboundInfo.UserInfo.Load(userKey); ok {
+		deviceLimit = v.(UserInfo).DeviceLimit
+	}
+	if deviceLimit <= 0 {
+		return true
+	}
+
+	v, ok := inboundInfo.UserOnlineIP.Load(userKey)
+	if !ok {
+		return true
+	}
+	ipMap := v.(*sync.Map)
+
+	now := time.Now().Unix()
+	fresh := 0
+	selfFresh := false
+	ipMap.Range(func(key, value interface{}) bool {
+		if now-value.(onlineEntry).LastSeen > int64(OnlineIPExpiry/time.Second) {
+			return true
+		}
+		if key.(string) == ip {
+			selfFresh = true
+			return false
+		}
+		fresh++
+		return true
+	})
+	if selfFresh {
+		return true
+	}
+	return fresh < deviceLimit
 }
 
 // determineRate returns the minimum non-zero rate

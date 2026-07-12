@@ -29,8 +29,8 @@ func (c *connCounter) Read(p []byte) (int, error) {
 	n, err := c.Conn.Read(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, int64(n), 0)
-		// Re-add IP to onlineIPs on every traffic event
-		// This ensures active connections are tracked even after collectUsage() clears the maps
+		// 仅上行（客户端发来的数据）能证明客户端存活，据此续期在线时间；
+		// 下行不续期，避免客户端离线后残留连接被远端数据无限"续命"
 		c.svc.updateOnlineIP(c.user, c.Conn.RemoteAddr())
 		if c.limiter != nil {
 			_ = c.limiter.WaitN(context.Background(), n)
@@ -46,9 +46,6 @@ func (c *connCounter) Write(p []byte) (int, error) {
 	n, err := c.Conn.Write(p)
 	if n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, 0, int64(n))
-		// Re-add IP to onlineIPs on every traffic event
-		// This ensures active connections are tracked even after collectUsage() clears the maps
-		c.svc.updateOnlineIP(c.user, c.Conn.RemoteAddr())
 		if c.limiter != nil {
 			_ = c.limiter.WaitN(context.Background(), n)
 		}
@@ -123,7 +120,6 @@ func (c *packetConnCounter) WritePacket(buffer *buf.Buffer, destination M.Socksa
 	err := c.PacketConn.WritePacket(buffer, destination)
 	if err == nil && n > 0 && c.svc != nil {
 		c.svc.addTraffic(c.user, 0, int64(n))
-		c.svc.updateOnlineIPSimple(c.user, c.host)
 		if c.limiter != nil {
 			_ = c.limiter.WaitN(context.Background(), n)
 		}
