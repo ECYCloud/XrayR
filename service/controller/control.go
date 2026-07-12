@@ -177,6 +177,9 @@ func (w *dataPathWrapper) Dispatch(ctx context.Context, link *transport.Link) {
 				link.Reader = w.limiter.RateReader(link.Reader, bucket)
 				link.Writer = w.limiter.RateWriter(link.Writer, bucket)
 			}
+			// 存活连接周期复查在线名额，超限被挤出的 IP 会被强制断开
+			link.Reader = w.limiter.GuardReader(link.Reader, nodeTag, email, srcIP)
+			link.Writer = w.limiter.GuardWriter(link.Writer, nodeTag, email, srcIP)
 		}
 	}
 

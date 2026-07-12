@@ -132,6 +132,13 @@ type XrayRCertConfig struct {
 	DNSEnv   map[string]string `json:"dns_env"`
 }
 
+// GlobalLimitConfig describes the panel-managed Redis connection info
+// (设置中心-节点相关) used by the cross-node global device limit.
+type GlobalLimitConfig struct {
+	SiteIP        string `json:"site_ip"`
+	RedisPassword string `json:"redis_password"`
+}
+
 type Hysteria2Config struct {
 	Obfs                  string
 	ObfsPassword          string

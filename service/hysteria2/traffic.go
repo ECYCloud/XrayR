@@ -9,6 +9,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -212,8 +213,25 @@ func (h *Hysteria2Service) collectUsage() ([]api.UserTraffic, []api.OnlineUser, 
 		t.Download = 0
 	}
 
-	// Collect online users before clearing
-	// This mimics the behavior of traditional Xray protocols (VMess/VLESS/Trojan)
+	// 先按活跃时间清理过期 IP，再收集在线用户。
+	// 整表清空会导致每个上报周期设备名额被重新抢占，使设备限制形同虚设；
+	// 活跃连接会通过流量事件持续刷新 ipLastActive，从而稳定持有名额。
+	now := time.Now()
+	for uuid, activeMap := range h.ipLastActive {
+		for ip, last := range activeMap {
+			if now.Sub(last) > limiter.OnlineIPExpiry {
+				delete(activeMap, ip)
+				if ipSet, ok := h.onlineIPs[uuid]; ok {
+					delete(ipSet, ip)
+				}
+			}
+		}
+		if len(activeMap) == 0 {
+			delete(h.ipLastActive, uuid)
+			delete(h.onlineIPs, uuid)
+		}
+	}
+
 	var onlineUsers []api.OnlineUser
 	for uuid, ipSet := range h.onlineIPs {
 		user, ok := h.users[uuid]
@@ -224,13 +242,6 @@ func (h *Hysteria2Service) collectUsage() ([]api.UserTraffic, []api.OnlineUser, 
 			onlineUsers = append(onlineUsers, api.OnlineUser{UID: user.UID, IP: ip})
 		}
 	}
-
-	// Clear online IPs and last active tracking after collection
-	// This prevents zombie connections from accumulating over time
-	// Similar to limiter.GetOnlineDevice() which calls inboundInfo.UserOnlineIP.Delete(email)
-	// Only IPs that are actively used in the next reporting cycle will be tracked again
-	h.onlineIPs = make(map[string]map[string]struct{})
-	h.ipLastActive = make(map[string]map[string]time.Time)
 
 	return uts, onlineUsers, snapshot
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/xtls/xray-core/common/task"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service"
 	"github.com/ECYCloud/XrayR/service/controller"
@@ -23,15 +24,20 @@ func New(apiClient api.API, cfg *controller.Config) *TuicService {
 		"Host": clientInfo.APIHost,
 		"ID":   clientInfo.NodeID,
 	})
+	var globalChecker *limiter.GlobalDeviceChecker
+	if cfg != nil {
+		globalChecker = limiter.NewGlobalDeviceChecker(cfg.GlobalDeviceLimitConfig)
+	}
 	return &TuicService{
-		apiClient:    apiClient,
-		config:       cfg,
-		logger:       logger,
-		rules:        rule.New(),
-		users:        make(map[string]userRecord),
-		traffic:      make(map[string]*userTraffic),
-		onlineIPs:    make(map[string]map[string]struct{}),
-		ipLastActive: make(map[string]map[string]time.Time),
+		apiClient:     apiClient,
+		config:        cfg,
+		logger:        logger,
+		rules:         rule.New(),
+		globalChecker: globalChecker,
+		users:         make(map[string]userRecord),
+		traffic:       make(map[string]*userTraffic),
+		onlineIPs:     make(map[string]map[string]struct{}),
+		ipLastActive:  make(map[string]map[string]time.Time),
 	}
 }
 

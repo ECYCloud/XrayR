@@ -10,6 +10,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/serverstatus"
 )
 
@@ -118,14 +119,6 @@ func (s *TuicService) addTraffic(uuid string, up, down int64) {
 }
 
 func (s *TuicService) allowConnection(uuid, ip string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	user, ok := s.users[uuid]
-	if !ok {
-		return false
-	}
-
 	host := ip
 	if host != "" {
 		if h, _, err := net.SplitHostPort(host); err == nil {
@@ -134,6 +127,14 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 	}
 	if host == "" {
 		host = "unknown"
+	}
+
+	s.mu.Lock()
+
+	user, ok := s.users[uuid]
+	if !ok {
+		s.mu.Unlock()
+		return false
 	}
 
 	ips, ok := s.onlineIPs[uuid]
@@ -151,6 +152,7 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 
 	if _, exists := ips[host]; !exists {
 		if user.DeviceLimit > 0 && len(ips) >= user.DeviceLimit {
+			s.mu.Unlock()
 			s.logger.WithFields(log.Fields{
 				"uid":         user.UID,
 				"deviceLimit": user.DeviceLimit,
@@ -163,6 +165,23 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 
 	// Update last active time for this IP
 	activeMap[host] = time.Now()
+	s.mu.Unlock()
+
+	// 全局（跨节点）限制：涉及 Redis 访问，必须在锁外执行
+	if !s.globalChecker.Allow(user.UID, host, user.DeviceLimit) {
+		s.mu.Lock()
+		delete(s.onlineIPs[uuid], host)
+		if am, ok := s.ipLastActive[uuid]; ok {
+			delete(am, host)
+		}
+		s.mu.Unlock()
+		s.logger.WithFields(log.Fields{
+			"uid":         user.UID,
+			"deviceLimit": user.DeviceLimit,
+			"remote":      ip,
+		}).Warn("TUIC user exceeded global device limit")
+		return false
+	}
 
 	return true
 }
@@ -255,8 +274,25 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[s
 		t.Download = 0
 	}
 
-	// Collect online users before clearing
-	// This mimics the behavior of traditional Xray protocols (VMess/VLESS/Trojan)
+	// 先按活跃时间清理过期 IP，再收集在线用户。
+	// 整表清空会导致每个上报周期设备名额被重新抢占，使设备限制形同虚设；
+	// 活跃连接会通过流量事件持续刷新 ipLastActive，从而稳定持有名额。
+	now := time.Now()
+	for uuid, activeMap := range s.ipLastActive {
+		for ip, last := range activeMap {
+			if now.Sub(last) > limiter.OnlineIPExpiry {
+				delete(activeMap, ip)
+				if ipSet, ok := s.onlineIPs[uuid]; ok {
+					delete(ipSet, ip)
+				}
+			}
+		}
+		if len(activeMap) == 0 {
+			delete(s.ipLastActive, uuid)
+			delete(s.onlineIPs, uuid)
+		}
+	}
+
 	var online []api.OnlineUser
 	for uuid, ipSet := range s.onlineIPs {
 		user, ok := s.users[uuid]
@@ -267,13 +303,6 @@ func (s *TuicService) collectUsage() ([]api.UserTraffic, []api.OnlineUser, map[s
 			online = append(online, api.OnlineUser{UID: user.UID, IP: ip})
 		}
 	}
-
-	// Clear online IPs and last active tracking after collection
-	// This prevents zombie connections from accumulating over time
-	// Similar to limiter.GetOnlineDevice() which calls inboundInfo.UserOnlineIP.Delete(email)
-	// Only IPs that are actively used in the next reporting cycle will be tracked again
-	s.onlineIPs = make(map[string]map[string]struct{})
-	s.ipLastActive = make(map[string]map[string]time.Time)
 
 	return uts, online, snapshot
 }

@@ -7,17 +7,17 @@ import (
 	"sync"
 	"time"
 
-	"github.com/eko/gocache/lib/v4/cache"
-	"github.com/eko/gocache/lib/v4/marshaler"
-	"github.com/eko/gocache/lib/v4/store"
-	goCacheStore "github.com/eko/gocache/store/go_cache/v4"
-	redisStore "github.com/eko/gocache/store/redis/v4"
-	goCache "github.com/patrickmn/go-cache"
-	"github.com/redis/go-redis/v9"
 	"github.com/xtls/xray-core/common/errors"
 	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
+)
+
+const (
+	// OnlineIPExpiry IP 无活动超过该时长即视为下线，释放设备名额
+	OnlineIPExpiry = time.Minute
+	// onlineTouchSec 存活连接刷新在线状态/复查名额的间隔（秒）
+	onlineTouchSec = 10
 )
 
 type UserInfo struct {
@@ -26,16 +26,19 @@ type UserInfo struct {
 	DeviceLimit int
 }
 
+// onlineEntry 记录单个在线 IP 的归属与最近活跃时间（unix 秒）
+type onlineEntry struct {
+	UID      int
+	LastSeen int64
+}
+
 type InboundInfo struct {
 	Tag            string
 	NodeSpeedLimit uint64
 	UserInfo       *sync.Map // Key: user identifier (usually UID string) -> UserInfo
 	BucketHub      *sync.Map // Key: user identifier -> *rate.Limiter
-	UserOnlineIP   *sync.Map // Key: user identifier -> {Key: IP, Value: UID}
-	GlobalLimit    struct {
-		config         *GlobalDeviceLimitConfig
-		globalOnlineIP *marshaler.Marshaler
-	}
+	UserOnlineIP   *sync.Map // Key: user identifier -> *sync.Map (Key: IP, Value: onlineEntry)
+	GlobalLimit    *GlobalDeviceChecker
 }
 
 type Limiter struct {
@@ -54,31 +57,7 @@ func (l *Limiter) AddInboundLimiter(tag string, nodeSpeedLimit uint64, userList 
 		NodeSpeedLimit: nodeSpeedLimit,
 		BucketHub:      new(sync.Map),
 		UserOnlineIP:   new(sync.Map),
-	}
-
-	if globalLimit != nil && globalLimit.Enable {
-		inboundInfo.GlobalLimit.config = globalLimit
-
-		// init local store
-		gs := goCacheStore.NewGoCache(goCache.New(time.Duration(globalLimit.Expiry)*time.Second, 1*time.Minute))
-
-		// init redis store
-		rs := redisStore.NewRedis(redis.NewClient(
-			&redis.Options{
-				Network:  globalLimit.RedisNetwork,
-				Addr:     globalLimit.RedisAddr,
-				Username: globalLimit.RedisUsername,
-				Password: globalLimit.RedisPassword,
-				DB:       globalLimit.RedisDB,
-			}),
-			store.WithExpiration(time.Duration(globalLimit.Expiry)*time.Second))
-
-		// init chained cache. First use local go-cache, if go-cache is nil, then use redis cache
-		cacheManager := cache.NewChain[any](
-			cache.New[any](gs), // go-cache is priority
-			cache.New[any](rs),
-		)
-		inboundInfo.GlobalLimit.globalOnlineIP = marshaler.New(cacheManager)
+		GlobalLimit:    NewGlobalDeviceChecker(globalLimit),
 	}
 
 	userMap := new(sync.Map)
@@ -138,24 +117,28 @@ func (l *Limiter) GetOnlineDevice(tag string) (*[]api.OnlineUser, error) {
 
 	if value, ok := l.InboundInfo.Load(tag); ok {
 		inboundInfo := value.(*InboundInfo)
-		// Clear Speed Limiter bucket for users who are not online
-		inboundInfo.BucketHub.Range(func(key, value interface{}) bool {
-			email := key.(string)
-			if _, exists := inboundInfo.UserOnlineIP.Load(email); !exists {
-				inboundInfo.BucketHub.Delete(email)
-			}
-			return true
-		})
+		now := time.Now().Unix()
+		// 只清理过期 IP，保留活跃 IP 的在线状态。
+		// 整表清空会导致每个上报周期设备名额被重新抢占，使设备限制形同虚设。
 		inboundInfo.UserOnlineIP.Range(func(key, value interface{}) bool {
 			email := key.(string)
 			ipMap := value.(*sync.Map)
-			ipMap.Range(func(key, value interface{}) bool {
-				uid := value.(int)
-				ip := key.(string)
-				onlineUser = append(onlineUser, api.OnlineUser{UID: uid, IP: ip})
+			active := 0
+			ipMap.Range(func(ipKey, entryValue interface{}) bool {
+				entry := entryValue.(onlineEntry)
+				if now-entry.LastSeen > int64(OnlineIPExpiry/time.Second) {
+					ipMap.Delete(ipKey)
+					return true
+				}
+				active++
+				onlineUser = append(onlineUser, api.OnlineUser{UID: entry.UID, IP: ipKey.(string)})
 				return true
 			})
-			inboundInfo.UserOnlineIP.Delete(email) // Reset online device
+			if active == 0 {
+				// 用户已完全下线：释放在线表与限速桶
+				inboundInfo.UserOnlineIP.Delete(email)
+				inboundInfo.BucketHub.Delete(email)
+			}
 			return true
 		})
 	} else {
@@ -182,31 +165,9 @@ func (l *Limiter) GetUserBucket(tag string, userKey string, ip string) (limiter 
 			deviceLimit = u.DeviceLimit
 		}
 
-		// Local device limit
-		ipMap := new(sync.Map)
-		ipMap.Store(ip, uid)
-		// If any device is online
-		if v, ok := inboundInfo.UserOnlineIP.LoadOrStore(userKey, ipMap); ok {
-			ipMap := v.(*sync.Map)
-			// If this is a new ip
-			if _, ok := ipMap.LoadOrStore(ip, uid); !ok {
-				counter := 0
-				ipMap.Range(func(key, value interface{}) bool {
-					counter++
-					return true
-				})
-				if counter > deviceLimit && deviceLimit > 0 {
-					ipMap.Delete(ip)
-					return nil, false, true
-				}
-			}
-		}
-
-		// GlobalLimit
-		if inboundInfo.GlobalLimit.config != nil && inboundInfo.GlobalLimit.config.Enable {
-			if reject := globalLimit(inboundInfo, tag, userKey, uid, ip, deviceLimit); reject {
-				return nil, false, true
-			}
+		// Local + global device limit (registers the IP as online on success)
+		if !admitIP(inboundInfo, userKey, ip, uid, deviceLimit) {
+			return nil, false, true
 		}
 
 		// Speed limit
@@ -226,50 +187,55 @@ func (l *Limiter) GetUserBucket(tag string, userKey string, ip string) (limiter 
 	return nil, false, false
 }
 
-// Global device limit
-func globalLimit(inboundInfo *InboundInfo, tag string, userKey string, uid int, ip string, deviceLimit int) bool {
+// admitIP 登记/刷新用户的在线 IP；本地或全局超出设备限制时拒绝。
+// 已在线 IP 刷新活跃时间放行；新 IP 在清理过期条目后按剩余名额判定。
+func admitIP(inboundInfo *InboundInfo, userKey, ip string, uid, deviceLimit int) bool {
+	now := time.Now().Unix()
+	v, _ := inboundInfo.UserOnlineIP.LoadOrStore(userKey, new(sync.Map))
+	ipMap := v.(*sync.Map)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(inboundInfo.GlobalLimit.config.Timeout)*time.Second)
-	defer cancel()
-
-	// userKey is already in format "tag|UID", which is unique per node & user.
-	// Use it directly as the cache key.
-	uniqueKey := userKey
-
-	v, err := inboundInfo.GlobalLimit.globalOnlineIP.Get(ctx, uniqueKey, new(map[string]int))
-	if err != nil {
-		if _, ok := err.(*store.NotFound); ok {
-			// First time seeing this node+user combination.
-			go pushIP(inboundInfo, uniqueKey, &map[string]int{ip: uid})
-		} else {
-			errors.LogErrorInner(context.Background(), err, "cache service")
+	if _, online := ipMap.Load(ip); online {
+		ipMap.Store(ip, onlineEntry{UID: uid, LastSeen: now})
+	} else {
+		counter := 0
+		ipMap.Range(func(key, value interface{}) bool {
+			if now-value.(onlineEntry).LastSeen > int64(OnlineIPExpiry/time.Second) {
+				ipMap.Delete(key)
+			} else {
+				counter++
+			}
+			return true
+		})
+		if deviceLimit > 0 && counter >= deviceLimit {
+			return false
 		}
+		ipMap.Store(ip, onlineEntry{UID: uid, LastSeen: now})
+	}
+
+	// 全局（跨节点）限制
+	if !inboundInfo.GlobalLimit.Allow(uid, ip, deviceLimit) {
+		ipMap.Delete(ip)
 		return false
 	}
-
-	ipMap := v.(*map[string]int)
-	// Reject device reach limit directly
-	if deviceLimit > 0 && len(*ipMap) > deviceLimit {
-		return true
-	}
-
-	// If the ip is not in cache
-	if _, ok := (*ipMap)[ip]; !ok {
-		(*ipMap)[ip] = uid
-		go pushIP(inboundInfo, uniqueKey, ipMap)
-	}
-
-	return false
+	return true
 }
 
-// push the ip to cache
-func pushIP(inboundInfo *InboundInfo, uniqueKey string, ipMap *map[string]int) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(inboundInfo.GlobalLimit.config.Timeout)*time.Second)
-	defer cancel()
-
-	if err := inboundInfo.GlobalLimit.globalOnlineIP.Set(ctx, uniqueKey, ipMap); err != nil {
-		errors.LogErrorInner(context.Background(), err, "cache service")
+// EnsureOnline 供存活连接周期性复查：IP 仍在线则刷新活跃时间；
+// 若名额已被占满且该 IP 已被挤出，返回 false（调用方应断开连接）。
+func (l *Limiter) EnsureOnline(tag, userKey, ip string) bool {
+	value, ok := l.InboundInfo.Load(tag)
+	if !ok {
+		return true
 	}
+	inboundInfo := value.(*InboundInfo)
+
+	var uid, deviceLimit int
+	if v, ok := inboundInfo.UserInfo.Load(userKey); ok {
+		u := v.(UserInfo)
+		uid = u.UID
+		deviceLimit = u.DeviceLimit
+	}
+	return admitIP(inboundInfo, userKey, ip, uid, deviceLimit)
 }
 
 // determineRate returns the minimum non-zero rate

@@ -371,6 +371,28 @@ func (p *Panel) Start() {
 			}
 		}
 
+		// 全局设备限制的 Redis 连接信息由面板下发（设置中心-节点相关：
+		// 站点IP、RedisPassword）。config.yml 中 RedisAddr/RedisPassword
+		// 留空时自动读取面板值；本地填写值优先，便于特殊网络拓扑覆盖。
+		if nodeConfig.PanelType == "SSPanel" {
+			if glc := controllerConfig.GlobalDeviceLimitConfig; glc != nil && glc.Enable && (glc.RedisAddr == "" || glc.RedisPassword == "") {
+				panelGlobal, err := apiClient.GetGlobalLimitConfig()
+				if err != nil {
+					log.Warnf("Failed to get global limit config from panel: %v", err)
+				} else if panelGlobal != nil {
+					if glc.RedisAddr == "" && panelGlobal.SiteIP != "" {
+						glc.RedisAddr = panelGlobal.SiteIP + ":6379"
+					}
+					if glc.RedisPassword == "" && panelGlobal.RedisPassword != "" {
+						glc.RedisPassword = panelGlobal.RedisPassword
+					}
+				}
+				if glc.RedisAddr == "" {
+					log.Warn("GlobalDeviceLimitConfig enabled but RedisAddr is empty (config.yml 未填且面板“站点IP”为空), global device limit will not work")
+				}
+			}
+		}
+
 		// Hysteria2 and AnyTLS are implemented as independent services and
 		// currently only supported for SSPanel.
 		if nodeConfig.PanelType == "SSPanel" {

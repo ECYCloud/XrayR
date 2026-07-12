@@ -11,6 +11,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/ECYCloud/XrayR/api"
+	"github.com/ECYCloud/XrayR/common/limiter"
 	"github.com/ECYCloud/XrayR/common/rule"
 	"github.com/ECYCloud/XrayR/service/controller"
 )
@@ -31,6 +32,9 @@ type TuicService struct {
 	logger  *log.Entry
 
 	rules *rule.Manager
+
+	// globalChecker 跨节点全局设备限制（共享 Redis），未启用时为 nil
+	globalChecker *limiter.GlobalDeviceChecker
 
 	mu           sync.RWMutex
 	users        map[string]userRecord           // authKey -> user

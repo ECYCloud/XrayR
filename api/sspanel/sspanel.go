@@ -318,6 +318,34 @@ func (c *APIClient) GetXrayRCertConfig() (*api.XrayRCertConfig, error) {
 	return cfg, nil
 }
 
+// GetGlobalLimitConfig fetches the panel-managed Redis connection info
+// (site IP and Redis password, 设置中心-节点相关) via /mod_mu/nodes/config
+// with type = global_limit, used by the cross-node global device limit.
+func (c *APIClient) GetGlobalLimitConfig() (*api.GlobalLimitConfig, error) {
+	path := "/mod_mu/nodes/config"
+	payload := map[string]string{
+		"type": "global_limit",
+	}
+
+	res, err := c.client.R().
+		SetBody(payload).
+		SetResult(&Response{}).
+		ForceContentType("application/json").
+		Post(path)
+
+	response, err := c.parseResponse(res, path, err)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := new(api.GlobalLimitConfig)
+	if err := json.Unmarshal(response.Data, cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal %s failed: %s", reflect.TypeOf(cfg), err)
+	}
+
+	return cfg, nil
+}
+
 // GetUserList will pull user form ssPanel
 func (c *APIClient) GetUserList() (UserList *[]api.UserInfo, err error) {
 	path := "/mod_mu/users"

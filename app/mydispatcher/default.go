@@ -228,6 +228,10 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 			inboundLink.Writer = d.Limiter.RateWriter(inboundLink.Writer, bucket)
 			outboundLink.Writer = d.Limiter.RateWriter(outboundLink.Writer, bucket)
 		}
+		// 存活连接周期复查在线名额，超限被挤出的 IP 会被强制断开
+		srcIP := sessionInbound.Source.Address.IP().String()
+		inboundLink.Writer = d.Limiter.GuardWriter(inboundLink.Writer, sessionInbound.Tag, user.Email, srcIP)
+		outboundLink.Writer = d.Limiter.GuardWriter(outboundLink.Writer, sessionInbound.Tag, user.Email, srcIP)
 
 		p := d.policy.ForLevel(user.Level)
 		if p.Stats.UserUplink {

@@ -10,6 +10,9 @@ type API interface {
 	// configuration provided by the panel (for example, Cloudflare
 	// DNS provider and its DNS-01 environment variables).
 	GetXrayRCertConfig() (certConfig *XrayRCertConfig, err error)
+	// GetGlobalLimitConfig returns the panel-managed Redis connection
+	// info (site IP and Redis password) for the global device limit.
+	GetGlobalLimitConfig() (globalLimitConfig *GlobalLimitConfig, err error)
 	GetUserList() (userList *[]UserInfo, err error)
 	ReportNodeStatus(nodeStatus *NodeStatus) (err error)
 	ReportNodeOnlineUsers(onlineUser *[]OnlineUser) (err error)

@@ -30,10 +30,10 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 	}
 
 	a.svc.mu.Lock()
-	defer a.svc.mu.Unlock()
 
 	user, ok := a.svc.users[auth]
 	if !ok {
+		a.svc.mu.Unlock()
 		logger.WithFields(log.Fields{
 			"remote": host,
 			"auth":   auth,
@@ -57,6 +57,7 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 	if _, exists := ipSet[host]; !exists {
 		// New device
 		if user.DeviceLimit > 0 && len(ipSet) >= user.DeviceLimit {
+			a.svc.mu.Unlock()
 			logger.WithFields(log.Fields{
 				"uid":         user.UID,
 				"deviceLimit": user.DeviceLimit,
@@ -69,6 +70,23 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 
 	// Update last active time for this IP
 	activeMap[host] = time.Now()
+	a.svc.mu.Unlock()
+
+	// 全局（跨节点）限制：涉及 Redis 访问，必须在锁外执行
+	if !a.svc.globalChecker.Allow(user.UID, host, user.DeviceLimit) {
+		a.svc.mu.Lock()
+		delete(a.svc.onlineIPs[auth], host)
+		if am, ok := a.svc.ipLastActive[auth]; ok {
+			delete(am, host)
+		}
+		a.svc.mu.Unlock()
+		logger.WithFields(log.Fields{
+			"uid":         user.UID,
+			"deviceLimit": user.DeviceLimit,
+			"remote":      host,
+		}).Warn("Hysteria2 user exceeded global device limit")
+		return false, ""
+	}
 
 	return true, auth
 }
