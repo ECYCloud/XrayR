@@ -411,12 +411,17 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 	defer c.access.Unlock()
 
 	reportOnline := make(map[int]int)
-	data := make([]OnlineUser, len(*onlineUserList))
-	for i, user := range *onlineUserList {
-		data[i] = OnlineUser{UID: user.UID, IP: user.IP}
-		reportOnline[user.UID]++ // will start from 1 if key doesn’t exist
+	var data []OnlineUser
+	if onlineUserList != nil {
+		data = make([]OnlineUser, len(*onlineUserList))
+		for i, user := range *onlineUserList {
+			data[i] = OnlineUser{UID: user.UID, IP: user.IP}
+			reportOnline[user.UID]++
+		}
 	}
-	c.LastReportOnline = reportOnline // Update LastReportOnline
+	// 空列表也必须上报并重置 LastReportOnline，否则下线 IP 后本节点仍保留旧计数，
+	// 面板 alive_ip 也无法按节点全量同步清除，导致名额长期被占。
+	c.LastReportOnline = reportOnline
 
 	if len(data) > 0 {
 		first := data[0]
@@ -427,6 +432,8 @@ func (c *APIClient) ReportNodeOnlineUsers(onlineUserList *[]api.OnlineUser) erro
 			first.UID,
 			first.IP,
 		)
+	} else {
+		log.Printf("ReportNodeOnlineUsers: node_id=%d online_count=0 (sync purge)", c.NodeID)
 	}
 
 	postData := &PostData{Data: data}
@@ -929,10 +936,11 @@ func (c *APIClient) ParseUserListResponse(userInfoResponse *[]UserResponse) (*[]
 				// If this backend server has reported any user in the last reporting period.
 			} else if lastOnline > 0 {
 				deviceLimit = lastOnline
-				// Remove this user.
-			} else {
+			} else if user.AliveIP > deviceLimit {
+				// 全局在线 IP 确实超过限额，且本节点未持有名额，不下发该用户
 				continue
 			}
+			// else: alive_ip 未超限但本节点暂无在线（可能为陈旧统计），仍下发用户，由节点本地+Redis 判限
 		}
 
 		if c.SpeedLimit > 0 {

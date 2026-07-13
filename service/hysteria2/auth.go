@@ -4,6 +4,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/ECYCloud/XrayR/common/limiter"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -54,9 +55,11 @@ func (a *hyAuthenticator) Authenticate(addr net.Addr, auth string, tx uint64) (b
 		a.svc.ipLastActive[auth] = activeMap
 	}
 
+	fresh := limiter.PurgeStaleDeviceIPs(ipSet, activeMap, limiter.OnlineIPExpiry)
+
 	if _, exists := ipSet[host]; !exists {
 		// New device
-		if user.DeviceLimit > 0 && len(ipSet) >= user.DeviceLimit {
+		if user.DeviceLimit > 0 && fresh >= user.DeviceLimit {
 			a.svc.mu.Unlock()
 			logger.WithFields(log.Fields{
 				"uid":         user.UID,

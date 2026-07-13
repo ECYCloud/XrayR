@@ -98,6 +98,12 @@ func (s *TuicService) Start() error {
 				s.logger.Print(err)
 			}
 		}
+		// Update exempt users
+		if exemptUsers, err := s.apiClient.GetExemptUsers(); err != nil {
+			s.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			s.rules.UpdateExemptUsers(exemptUsers)
+		}
 	}
 
 	boxInstance, _, err := s.buildSingBox()

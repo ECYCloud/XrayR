@@ -90,6 +90,12 @@ func (h *Hysteria2Service) Start() error {
 				h.logger.Print(err)
 			}
 		}
+		// Update exempt users
+		if exemptUsers, err := h.apiClient.GetExemptUsers(); err != nil {
+			h.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			h.rules.UpdateExemptUsers(exemptUsers)
+		}
 	}
 
 	// Build Hysteria2 server.

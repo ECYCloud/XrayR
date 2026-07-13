@@ -329,6 +329,12 @@ func (h *Hysteria2Service) userMonitor() error {
 				h.logger.Print(err)
 			}
 		}
+		// Update exempt users
+		if exemptUsers, err := h.apiClient.GetExemptUsers(); err != nil {
+			h.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			h.rules.UpdateExemptUsers(exemptUsers)
+		}
 	}
 
 	// Collect traffic & online users
@@ -344,10 +350,8 @@ func (h *Hysteria2Service) userMonitor() error {
 			h.restoreTraffic(snapshot)
 		}
 	}
-	if len(onlineUsers) > 0 {
-		if err = h.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
-			h.logger.Print(err)
-		}
+	if err = h.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
+		h.logger.Print(err)
 	}
 
 	// Report Illegal user

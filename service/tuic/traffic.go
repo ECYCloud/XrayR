@@ -150,8 +150,10 @@ func (s *TuicService) allowConnection(uuid, ip string) bool {
 		s.ipLastActive[uuid] = activeMap
 	}
 
+	fresh := limiter.PurgeStaleDeviceIPs(ips, activeMap, limiter.OnlineIPExpiry)
+
 	if _, exists := ips[host]; !exists {
-		if user.DeviceLimit > 0 && len(ips) >= user.DeviceLimit {
+		if user.DeviceLimit > 0 && fresh >= user.DeviceLimit {
 			s.mu.Unlock()
 			s.logger.WithFields(log.Fields{
 				"uid":         user.UID,
@@ -380,6 +382,12 @@ func (s *TuicService) userMonitor() error {
 				s.logger.Print(err)
 			}
 		}
+		// Update exempt users
+		if exemptUsers, err := s.apiClient.GetExemptUsers(); err != nil {
+			s.logger.Printf("Get exempt users failed: %s", err)
+		} else {
+			s.rules.UpdateExemptUsers(exemptUsers)
+		}
 	}
 
 	userTraffic, onlineUsers, snapshot := s.collectUsage()
@@ -390,10 +398,8 @@ func (s *TuicService) userMonitor() error {
 			s.restoreTraffic(snapshot)
 		}
 	}
-	if len(onlineUsers) > 0 {
-		if err = s.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
-			s.logger.Print(err)
-		}
+	if err = s.apiClient.ReportNodeOnlineUsers(&onlineUsers); err != nil {
+		s.logger.Print(err)
 	}
 
 	// Report Illegal user

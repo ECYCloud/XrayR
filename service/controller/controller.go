@@ -776,13 +776,13 @@ func (c *Controller) userInfoMonitor() (err error) {
 		}
 	}
 
-	// Report Online info
+	// Report Online info（空列表也上报，供面板按节点全量同步并清零 LastReportOnline）
 	if onlineDevice, err := c.GetOnlineDevice(c.Tag); err != nil {
 		c.logger.Print(err)
-	} else if len(*onlineDevice) > 0 {
+	} else {
 		if err = c.apiClient.ReportNodeOnlineUsers(onlineDevice); err != nil {
 			c.logger.Print(err)
-		} else {
+		} else if len(*onlineDevice) > 0 {
 			sample := (*onlineDevice)[0]
 			c.logger.Printf(
 				"Report %d online users (NodeID=%d, Tag=%s); example: UID=%d IP=%s",
