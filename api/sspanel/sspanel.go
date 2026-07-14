@@ -1062,14 +1062,13 @@ func (c *APIClient) ParseSSPanelNodeInfo(nodeInfoResponse *NodeInfoResponse) (*a
 	realityConfig := new(api.REALITYConfig)
 	if nodeConfig.RealityOpts != nil {
 		r := nodeConfig.RealityOpts
-		// ProxyProtocolVer SSPanel reality-opts.proxy_protocol_ver
-		proxyVer := r.ProxyProtocolVer
-		if proxyVer == 0 {
-			proxyVer = nodeConfig.ProxyProtocolVer
-		}
+		// ProxyProtocolVer 即 REALITY 的 Xver：回落/镜像连接 dest 时向 dest 发送 PROXY 头，
+		// 仅适用于 dest 为自建且开启 proxy_protocol 的服务，只认 reality-opts.proxy_protocol_ver。
+		// 注意不能回退到节点级 proxy_protocol_ver（那是入站接受 PROXY 头的开关配套字段），
+		// 否则公网伪装站收到 PROXY 头会直接断开，REALITY 镜像不到 ServerHello，握手必然失败。
 		realityConfig = &api.REALITYConfig{
 			Dest:             r.Dest,
-			ProxyProtocolVer: proxyVer,
+			ProxyProtocolVer: r.ProxyProtocolVer,
 			ServerNames:      r.ServerNames,
 			PrivateKey:       r.PrivateKey,
 			MinClientVer:     r.MinClientVer,
